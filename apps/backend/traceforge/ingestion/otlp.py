@@ -6,9 +6,11 @@ from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import (
     ExportTraceServiceRequest,
     ExportTraceServiceResponse,
 )
+from traceforge.normalization import normalize_request
+from traceforge.persistence import persist_spans
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 
 @router.post("/v1/traces")
@@ -21,6 +23,8 @@ async def ingest_traces(request: Request):
         export_request.ParseFromString(await request.body())
     except DecodeError:
         raise HTTPException(status_code=400, detail="Malformed protobuf") from None
+
+    persist_spans(normalize_request(export_request))
 
     resource_spans = len(export_request.resource_spans)
     scope_spans = sum(len(resource.scope_spans) for resource in export_request.resource_spans)

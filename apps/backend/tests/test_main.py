@@ -20,6 +20,14 @@ def test_ready():
     assert response.status_code == 200
 
 
+def test_ready_returns_503_when_database_is_unavailable(monkeypatch):
+    monkeypatch.setattr("traceforge.main.database_ready", lambda: False)
+
+    response = client.get("/health/ready")
+
+    assert response.status_code == 503
+
+
 def test_ingests_valid_otlp_protobuf(caplog):
     request = ExportTraceServiceRequest()
     scope = request.resource_spans.add().scope_spans.add()
