@@ -89,6 +89,7 @@ def test_lists_and_retrieves_trace():
     assert detail_response.status_code == 200
     assert detail_response.json()["spans"][0]["duration_ns"] == 150
     assert detail_response.json()["spans"][0]["service"]["name"] == "orders"
+    assert detail_response.json()["trace"]["completeness_state"] == "PROCESSING"
 
 
 def test_returns_404_for_unknown_trace():

@@ -7,8 +7,11 @@ name = "traceforge-backend"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+  "alembic>=1.14",
   "fastapi>=0.115",
   "opentelemetry-proto>=1.28",
+  "psycopg[binary]>=3.2",
+  "sqlalchemy>=2.0",
   "uvicorn[standard]>=0.30",
 ]
 
@@ -20,3 +23,6 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.setuptools.packages.find]
+include = ["traceforge*"]

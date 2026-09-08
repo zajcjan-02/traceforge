@@ -86,6 +86,7 @@ def get_trace(trace_id: str):
             "duration_ns": trace["duration_ns"],
             "span_count": trace["span_count"],
             "completeness_state": trace["completeness_state"],
+            "last_received_at": trace["last_received_at"],
             "services": [
                 {
                     "service_id": service["service_id"],

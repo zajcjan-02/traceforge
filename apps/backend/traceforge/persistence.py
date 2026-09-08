@@ -2,6 +2,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from traceforge.database import engine
+from traceforge.lifecycle import completion_deadline
 from traceforge.models import services, spans, trace_services, traces
 
 
@@ -59,6 +60,7 @@ def persist_spans(normalized_spans):
                         duration_ns=span["duration_ns"],
                         span_count=1,
                         completeness_state="PROCESSING",
+                        completion_deadline=completion_deadline(),
                     )
                 )
             else:
@@ -78,7 +80,9 @@ def persist_spans(normalized_spans):
                         last_span_end_ns=last_end,
                         duration_ns=(last_end - first_start if last_end is not None else None),
                         span_count=traces.c.span_count + 1,
+                        completeness_state="PROCESSING",
                         last_received_at=func.now(),
+                        completion_deadline=completion_deadline(),
                     )
                 )
 

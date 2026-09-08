@@ -28,6 +28,7 @@ traces = Table(
     Column("completeness_state", String, nullable=False),
     Column("first_received_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_received_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("completion_deadline", DateTime(timezone=True)),
 )
 
 services = Table(
