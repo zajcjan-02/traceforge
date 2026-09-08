@@ -1,0 +1,19 @@
+services:
+  traceforge-backend:
+    build: ./apps/backend
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.160.0
+
+    command:
+      - --config=/etc/otelcol/config.yaml
+
+    volumes:
+      - ./deploy/otel/collector-config.yaml:/etc/otelcol/config.yaml:ro
+
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
