@@ -3,9 +3,10 @@ import os
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects.postgresql import insert
 
 from traceforge.database import engine
-from traceforge.models import spans, traces
+from traceforge.models import analysis_jobs, spans, traces
 
 
 def completion_deadline():
@@ -69,6 +70,26 @@ def evaluate_trace(trace_id):
             .where(traces.c.trace_id == trace_id)
             .values(completeness_state=state, completion_deadline=None)
         )
+        job = connection.execute(
+            insert(analysis_jobs)
+            .values(
+                trace_id=trace_id,
+                trace_revision=trace["revision"],
+                state="PENDING",
+            )
+            .on_conflict_do_nothing(index_elements=["trace_id", "trace_revision"])
+            .returning(analysis_jobs.c.job_id)
+        ).first()
+        if job is not None:
+            connection.execute(
+                update(traces)
+                .where(
+                    traces.c.trace_id == trace_id,
+                    traces.c.revision == trace["revision"],
+                    traces.c.completeness_state == state,
+                )
+                .values(analysis_state="PENDING")
+            )
 
 
 async def run_lifecycle_sweep():

@@ -251,7 +251,7 @@ traces (
     status                  TEXT NOT NULL,
 
     completeness_state      TEXT NOT NULL,
-    analysis_state          TEXT NOT NULL,
+    analysis_state          TEXT NULL,
 
     current_analysis_run_id UUID NULL,
 
@@ -261,6 +261,8 @@ traces (
     updated_at              TIMESTAMPTZ NOT NULL
 )
 ```
+
+`analysis_state` is `NULL` until a finalized trace revision is scheduled for analysis.
 
 The exact types for enums may use PostgreSQL enums, text with constraints, or application-defined typed values.
 

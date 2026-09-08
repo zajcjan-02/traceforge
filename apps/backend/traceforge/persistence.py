@@ -81,6 +81,8 @@ def persist_spans(normalized_spans):
                         duration_ns=(last_end - first_start if last_end is not None else None),
                         span_count=traces.c.span_count + 1,
                         completeness_state="PROCESSING",
+                        analysis_state=None,
+                        current_analysis_run_id=None,
                         last_received_at=func.now(),
                         completion_deadline=completion_deadline(),
                     )

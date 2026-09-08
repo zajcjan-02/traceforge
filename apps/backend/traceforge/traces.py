@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 
 from traceforge.database import engine
-from traceforge.models import services, spans, trace_services, traces
+from traceforge.models import analysis_runs, services, spans, trace_services, traces
 
 router = APIRouter(prefix="/api/v1")
 
@@ -39,6 +39,7 @@ def list_traces():
                 "span_count": row["span_count"],
                 "service_count": row["service_count"],
                 "completeness_state": row["completeness_state"],
+                "analysis_state": row["analysis_state"],
             }
             for row in rows
         ]
@@ -76,6 +77,15 @@ def get_trace(trace_id: str):
             .where(spans.c.trace_id == trace_id_bytes)
             .order_by(spans.c.start_time_unix_ns, spans.c.span_id)
         ).mappings().all()
+        analysis_run = None
+        if trace["current_analysis_run_id"] is not None:
+            analysis_run = connection.execute(
+                select(analysis_runs).where(
+                    analysis_runs.c.analysis_run_id == trace["current_analysis_run_id"],
+                    analysis_runs.c.trace_id == trace_id_bytes,
+                    analysis_runs.c.trace_revision == trace["revision"],
+                )
+            ).mappings().first()
 
     return {
         "trace": {
@@ -86,6 +96,7 @@ def get_trace(trace_id: str):
             "duration_ns": trace["duration_ns"],
             "span_count": trace["span_count"],
             "completeness_state": trace["completeness_state"],
+            "analysis_state": trace["analysis_state"],
             "last_received_at": trace["last_received_at"],
             "services": [
                 {
@@ -95,6 +106,20 @@ def get_trace(trace_id: str):
                 }
                 for service in trace_service_rows
             ],
+        },
+        "analysis": {
+            "state": trace["analysis_state"],
+            "current_run": (
+                {
+                    "analysis_run_id": str(analysis_run["analysis_run_id"]),
+                    "trace_revision": analysis_run["trace_revision"],
+                    "state": analysis_run["state"],
+                    "started_at": analysis_run["started_at"],
+                    "completed_at": analysis_run["completed_at"],
+                }
+                if analysis_run is not None
+                else None
+            ),
         },
         "spans": [
             {

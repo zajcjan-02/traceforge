@@ -12,7 +12,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 metadata = MetaData()
 
@@ -26,9 +26,42 @@ traces = Table(
     Column("duration_ns", BIGINT),
     Column("span_count", Integer, nullable=False),
     Column("completeness_state", String, nullable=False),
+    Column("analysis_state", String),
+    Column("current_analysis_run_id", UUID(as_uuid=True)),
     Column("first_received_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("last_received_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("completion_deadline", DateTime(timezone=True)),
+)
+
+analysis_jobs = Table(
+    "analysis_jobs",
+    metadata,
+    Column("job_id", BIGINT, primary_key=True, autoincrement=True),
+    Column("trace_id", LargeBinary(16), ForeignKey("traces.trace_id"), nullable=False),
+    Column("trace_revision", BIGINT, nullable=False),
+    Column("state", String, nullable=False),
+    Column("attempt_count", Integer, nullable=False, server_default="0"),
+    Column("available_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("claimed_at", DateTime(timezone=True)),
+    Column("lease_expires_at", DateTime(timezone=True)),
+    Column("claim_token", UUID(as_uuid=True)),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("last_error", String),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("trace_id", "trace_revision"),
+)
+
+analysis_runs = Table(
+    "analysis_runs",
+    metadata,
+    Column("analysis_run_id", UUID(as_uuid=True), primary_key=True),
+    Column("trace_id", LargeBinary(16), ForeignKey("traces.trace_id"), nullable=False),
+    Column("trace_revision", BIGINT, nullable=False),
+    Column("state", String, nullable=False),
+    Column("analysis_version", String, nullable=False),
+    Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("completed_at", DateTime(timezone=True)),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
 )
 
 services = Table(
