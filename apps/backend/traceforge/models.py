@@ -3,6 +3,7 @@ from sqlalchemy import (
     Column,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Integer,
     LargeBinary,
     MetaData,
@@ -62,6 +63,60 @@ analysis_runs = Table(
     Column("started_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
     Column("completed_at", DateTime(timezone=True)),
     Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+detector_results = Table(
+    "detector_results",
+    metadata,
+    Column("detector_result_id", UUID(as_uuid=True), primary_key=True),
+    Column("analysis_run_id", UUID(as_uuid=True), ForeignKey("analysis_runs.analysis_run_id"), nullable=False),
+    Column("detector_id", String, nullable=False),
+    Column("detector_version", String, nullable=False),
+    Column("state", String, nullable=False),
+    Column("duration_ns", BIGINT),
+    Column("failure_reason", String),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    UniqueConstraint("analysis_run_id", "detector_id", "detector_version"),
+)
+
+findings = Table(
+    "findings",
+    metadata,
+    Column("finding_id", UUID(as_uuid=True), primary_key=True),
+    Column("analysis_run_id", UUID(as_uuid=True), ForeignKey("analysis_runs.analysis_run_id"), nullable=False),
+    Column("trace_id", LargeBinary(16), ForeignKey("traces.trace_id"), nullable=False),
+    Column("trace_revision", BIGINT, nullable=False),
+    Column("detector_result_id", UUID(as_uuid=True), ForeignKey("detector_results.detector_result_id"), nullable=False),
+    Column("finding_type", String, nullable=False),
+    Column("severity", String, nullable=False),
+    Column("confidence", String, nullable=False),
+    Column("title", String, nullable=False),
+    Column("summary", String, nullable=False),
+    Column("observation", String, nullable=False),
+    Column("interpretation", String),
+    Column("structured_data", JSONB, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+)
+
+finding_evidence = Table(
+    "finding_evidence",
+    metadata,
+    Column("evidence_id", UUID(as_uuid=True), primary_key=True),
+    Column("finding_id", UUID(as_uuid=True), ForeignKey("findings.finding_id"), nullable=False),
+    Column("evidence_type", String, nullable=False),
+    Column("structured_data", JSONB, nullable=False),
+    Column("description", String),
+)
+
+finding_spans = Table(
+    "finding_spans",
+    metadata,
+    Column("finding_id", UUID(as_uuid=True), ForeignKey("findings.finding_id"), nullable=False),
+    Column("trace_id", LargeBinary(16), nullable=False),
+    Column("span_id", LargeBinary(8), nullable=False),
+    Column("relation", String),
+    PrimaryKeyConstraint("finding_id", "trace_id", "span_id"),
+    ForeignKeyConstraint(["trace_id", "span_id"], ["spans.trace_id", "spans.span_id"]),
 )
 
 services = Table(

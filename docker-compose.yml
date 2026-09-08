@@ -54,6 +54,7 @@ services:
       TRACE_ANALYSIS_POLL_SECONDS: "1"
       TRACE_ANALYSIS_LEASE_SECONDS: "30"
       TRACE_ANALYSIS_MAX_ATTEMPTS: "3"
+      TRACE_REPEATED_DATABASE_MIN_COUNT: "5"
 
     depends_on:
       postgres:

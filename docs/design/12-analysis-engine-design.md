@@ -1008,7 +1008,7 @@ Two equivalent operations are technically repeated, but a finding for every pair
 
 The detector therefore requires a configurable minimum count.
 
-Illustrative initial threshold:
+Initial default threshold:
 
 ```text
 count >= 5
@@ -1437,22 +1437,20 @@ Example for repeated database operations:
 
 ```text
 HIGH
-- normalized operation reliable
-- count significantly above threshold
-- all spans same service
-- telemetry structurally complete
+- operation came from `db.query.summary`
+- trace is COMPLETE
 ```
 
 ```text
 MEDIUM
-- grouping reliable
-- trace incomplete or timing uncertain
+- raw `db.query.text` normalization was used and trace is COMPLETE
+- or `db.query.summary` was used and trace is INCOMPLETE
 ```
 
 ```text
 LOW
-- heuristic normalization used
-- structural gaps materially affect interpretation
+- raw `db.query.text` normalization was used
+- trace is INCOMPLETE
 ```
 
 ---
