@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import func, select, update
 
+from traceforge.critical_path import calculate
 from traceforge.database import engine
 from traceforge.models import (
     analysis_jobs,
@@ -130,6 +131,8 @@ def complete_job(job):
     trace, span_rows = load_trace(job)
     started_at = time.perf_counter_ns()
     try:
+        if trace["revision"] == job["trace_revision"]:
+            calculate(trace, span_rows)
         outcome = detect(trace, span_rows)
         failure_reason = None
     except Exception as error:

@@ -13,17 +13,7 @@ router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
 
 
-@router.post("/v1/traces")
-async def ingest_traces(request: Request):
-    if request.headers.get("content-type") != "application/x-protobuf":
-        raise HTTPException(status_code=415, detail="Expected application/x-protobuf")
-
-    export_request = ExportTraceServiceRequest()
-    try:
-        export_request.ParseFromString(await request.body())
-    except DecodeError:
-        raise HTTPException(status_code=400, detail="Malformed protobuf") from None
-
+def ingest_export_request(export_request):
     persist_spans(normalize_request(export_request))
 
     resource_spans = len(export_request.resource_spans)
@@ -39,6 +29,20 @@ async def ingest_traces(request: Request):
         scope_spans,
         spans,
     )
+
+
+@router.post("/v1/traces")
+async def ingest_traces(request: Request):
+    if request.headers.get("content-type") != "application/x-protobuf":
+        raise HTTPException(status_code=415, detail="Expected application/x-protobuf")
+
+    export_request = ExportTraceServiceRequest()
+    try:
+        export_request.ParseFromString(await request.body())
+    except DecodeError:
+        raise HTTPException(status_code=400, detail="Malformed protobuf") from None
+
+    ingest_export_request(export_request)
 
     return Response(
         content=ExportTraceServiceResponse().SerializeToString(),

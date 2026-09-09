@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from traceforge.database import database_ready
+from traceforge.debug import router as debug_router
 from traceforge.ingestion.otlp import router as otlp_router
 from traceforge.lifecycle import run_lifecycle_sweep
 from traceforge.traces import router as traces_router
@@ -22,6 +23,7 @@ async def lifespan(app):
 app = FastAPI(lifespan=lifespan)
 app.include_router(otlp_router)
 app.include_router(traces_router)
+app.include_router(debug_router)
 
 
 @app.get("/health/live")

@@ -754,6 +754,28 @@ The exact default will be determined experimentally.
 
 ## 12.27 Critical Path Confidence
 
+## 12.27.1 Implemented v0.1 Wall-Clock Attribution Path
+
+TraceForge v0.1 implements a deterministic wall-clock critical-path
+approximation. It attributes every instant in the single valid root span to
+either that parent span's exclusive execution or one active direct child.
+
+For overlapping sibling intervals, the active child with the latest effective
+end time is selected; equal end times use the stable span ID ordering. The
+selected child is then evaluated recursively. This can switch attribution
+between concurrent sibling branches as their observed intervals change.
+
+This is an attribution rule, not proof of a causal dependency between sibling
+operations. Parent/child links are observed telemetry structure; they are used
+as a pragmatic nesting model, while causal relationships in arbitrary
+asynchronous systems may be unavailable.
+
+Intervals are half-open and child intervals are clipped only in the derived
+calculation. The result is unavailable for incomplete traces, invalid timing,
+missing parents, root ambiguity, cycles, or children that do not overlap their
+parent. Available results have ordered, non-overlapping segments whose
+contributions exactly cover the root interval.
+
 Critical-path confidence may be reduced by:
 
 ```text

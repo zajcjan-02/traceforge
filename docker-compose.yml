@@ -26,6 +26,7 @@ services:
       DATABASE_URL: postgresql+psycopg://traceforge:traceforge@postgres:5432/traceforge
       TRACE_QUIET_PERIOD_SECONDS: "2"
       TRACE_LIFECYCLE_SWEEP_INTERVAL_SECONDS: "1"
+      TRACEFORGE_DEBUG_UI: "true"
 
     depends_on:
       postgres:

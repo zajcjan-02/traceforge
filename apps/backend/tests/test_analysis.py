@@ -93,6 +93,17 @@ def test_worker_completes_current_revision_and_exposes_it():
     assert list_response.json()["items"][0]["analysis_state"] == "COMPLETE"
 
 
+def test_worker_calculates_critical_path_for_current_revision(monkeypatch):
+    trace_id = "0123456789abcdef0123456789abcdef"
+    send(request_with_span(trace_id, "0123456789abcdef"))
+    finalize(trace_id)
+    calculated = []
+    monkeypatch.setattr("traceforge.worker.calculate", lambda trace, spans: calculated.append((trace, spans)))
+
+    assert complete_job(claim_job())
+    assert len(calculated) == 1
+
+
 def test_only_one_worker_can_claim_a_job():
     trace_id = "0123456789abcdef0123456789abcdef"
     send(request_with_span(trace_id, "0123456789abcdef"))
