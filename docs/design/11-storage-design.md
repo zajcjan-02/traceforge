@@ -599,7 +599,7 @@ span_events (
     event_index     INTEGER NOT NULL,
 
     name            TEXT NOT NULL,
-    timestamp       TIMESTAMPTZ NOT NULL,
+    timestamp_unix_ns BIGINT NULL,
 
     attributes      JSONB NOT NULL
 )

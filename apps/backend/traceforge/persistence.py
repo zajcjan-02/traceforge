@@ -3,7 +3,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from traceforge.database import engine
 from traceforge.lifecycle import completion_deadline
-from traceforge.models import services, spans, trace_services, traces
+from traceforge.models import services, span_events, spans, trace_services, traces
 
 
 def persist_spans(normalized_spans):
@@ -46,6 +46,19 @@ def persist_spans(normalized_spans):
 
             if inserted is None:
                 continue
+
+            if span["events"]:
+                connection.execute(
+                    insert(span_events),
+                    [
+                        {
+                            "trace_id": span["trace_id"],
+                            "span_id": span["span_id"],
+                            **event,
+                        }
+                        for event in span["events"]
+                    ],
+                )
 
             trace = connection.execute(
                 select(traces).where(traces.c.trace_id == span["trace_id"])

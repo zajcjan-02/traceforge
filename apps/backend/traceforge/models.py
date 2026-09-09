@@ -149,6 +149,20 @@ spans = Table(
     PrimaryKeyConstraint("trace_id", "span_id"),
 )
 
+span_events = Table(
+    "span_events",
+    metadata,
+    Column("event_id", BIGINT, primary_key=True, autoincrement=True),
+    Column("trace_id", LargeBinary(16), nullable=False),
+    Column("span_id", LargeBinary(8), nullable=False),
+    Column("event_index", Integer, nullable=False),
+    Column("name", String, nullable=False),
+    Column("timestamp_unix_ns", BIGINT),
+    Column("attributes", JSONB, nullable=False),
+    ForeignKeyConstraint(["trace_id", "span_id"], ["spans.trace_id", "spans.span_id"]),
+    UniqueConstraint("trace_id", "span_id", "event_index"),
+)
+
 trace_services = Table(
     "trace_services",
     metadata,

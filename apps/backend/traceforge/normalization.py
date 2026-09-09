@@ -34,6 +34,15 @@ def normalize_request(export_request):
                         ),
                         "attributes": normalize_attributes(span.attributes),
                         "resource_attributes": resource_attributes,
+                        "events": [
+                            {
+                                "event_index": index,
+                                "name": event.name,
+                                "timestamp_unix_ns": event.time_unix_nano or None,
+                                "attributes": normalize_attributes(event.attributes),
+                            }
+                            for index, event in enumerate(span.events)
+                        ],
                     }
                 )
 

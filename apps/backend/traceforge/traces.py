@@ -10,6 +10,7 @@ from traceforge.models import (
     finding_spans,
     findings,
     services,
+    span_events,
     spans,
     trace_services,
     traces,
@@ -87,6 +88,26 @@ def get_trace(trace_id: str):
             .where(spans.c.trace_id == trace_id_bytes)
             .order_by(spans.c.start_time_unix_ns, spans.c.span_id)
         ).mappings().all()
+        event_rows = connection.execute(
+            select(span_events)
+            .where(span_events.c.trace_id == trace_id_bytes)
+            .order_by(span_events.c.span_id, span_events.c.event_index)
+        ).mappings().all()
+        events_by_span = {}
+        for event in event_rows:
+            attributes = {
+                key: value
+                for key, value in event["attributes"].items()
+                if key not in {"exception.message", "exception.stacktrace"}
+            }
+            events_by_span.setdefault(event["span_id"], []).append(
+                {
+                    "event_index": event["event_index"],
+                    "name": event["name"],
+                    "timestamp_unix_ns": event["timestamp_unix_ns"],
+                    "attributes": attributes,
+                }
+            )
         analysis_run = None
         if trace["current_analysis_run_id"] is not None:
             analysis_run = connection.execute(
@@ -210,6 +231,7 @@ def get_trace(trace_id: str):
                 "status": span["status"],
                 "attributes": span["attributes"],
                 "resource_attributes": span["resource_attributes"],
+                "events": events_by_span.get(span["span_id"], []),
             }
             for span in span_rows
         ],

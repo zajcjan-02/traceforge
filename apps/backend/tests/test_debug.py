@@ -29,6 +29,7 @@ def test_debug_routes_are_disabled_by_default(monkeypatch):
     assert client.get("/debug").status_code == 404
     assert client.post("/debug/generate/normal").status_code == 404
     assert client.post("/debug/generate/latency-contributor").status_code == 404
+    assert client.post("/debug/generate/propagated-error").status_code == 404
     assert client.get("/debug/critical-path/0123456789abcdef0123456789abcdef").status_code == 404
 
 
@@ -45,6 +46,7 @@ def test_debug_page_and_normal_scenario(monkeypatch):
     assert "Generate normal trace" in page.text
     assert "Generate critical-path trace" in page.text
     assert "Generate latency-contributor trace" in page.text
+    assert "Generate propagated-error trace" in page.text
     assert "Raw JSON" in page.text
     assert detail["trace"]["completeness_state"] == "COMPLETE"
     assert detail["analysis"]["state"] == "COMPLETE"
@@ -111,3 +113,47 @@ def test_latency_contributor_scenario_creates_a_finding(monkeypatch):
         "CRITICAL_PATH_CONTRIBUTION",
         "CRITICAL_PATH_SEGMENTS",
     }
+
+
+def test_propagated_error_scenario_creates_an_origin_finding(monkeypatch):
+    monkeypatch.setenv("TRACEFORGE_DEBUG_UI", "true")
+
+    trace_id = client.post("/debug/generate/propagated-error").json()["trace_id"]
+    finish(trace_id)
+    detail = client.get(f"/api/v1/traces/{trace_id}").json()
+    finding = next(
+        finding
+        for finding in detail["analysis"]["current_run"]["findings"]
+        if finding["type"] == "LIKELY_ERROR_ORIGIN"
+    )
+
+    assert finding["structured_data"]["service"] == "debug-database"
+    assert finding["structured_data"]["error_source"] == "exception_event"
+    assert finding["structured_data"]["propagation_span_ids"] == [
+        "0000000000000004",
+        "0000000000000003",
+        "0000000000000002",
+        "0000000000000001",
+    ]
+    assert set(finding["related_span_ids"]) == {
+        "0000000000000004",
+        "0000000000000003",
+        "0000000000000002",
+        "0000000000000001",
+    }
+    database_span = next(span for span in detail["spans"] if span["name"] == "database query")
+    assert database_span["events"][0]["attributes"] == {"exception.type": "DatabaseTimeout"}
+
+
+def test_independent_error_scenario_does_not_create_an_origin(monkeypatch):
+    monkeypatch.setenv("TRACEFORGE_DEBUG_UI", "true")
+
+    trace_id = client.post("/debug/generate/independent-errors").json()["trace_id"]
+    finish(trace_id)
+    detail = client.get(f"/api/v1/traces/{trace_id}").json()
+
+    assert not [
+        finding
+        for finding in detail["analysis"]["current_run"]["findings"]
+        if finding["type"] == "LIKELY_ERROR_ORIGIN"
+    ]

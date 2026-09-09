@@ -7,6 +7,11 @@ from sqlalchemy import func, select, update
 
 from traceforge.critical_path import calculate
 from traceforge.database import engine
+from traceforge.error_origin import (
+    DETECTOR_ID as ERROR_ORIGIN_DETECTOR_ID,
+    DETECTOR_VERSION as ERROR_ORIGIN_DETECTOR_VERSION,
+    detect as detect_error_origin,
+)
 from traceforge.latency_contributor import (
     DETECTOR_ID as LATENCY_DETECTOR_ID,
     DETECTOR_VERSION as LATENCY_DETECTOR_VERSION,
@@ -20,6 +25,7 @@ from traceforge.models import (
     finding_spans,
     findings,
     services,
+    span_events,
     spans,
     traces,
 )
@@ -127,9 +133,12 @@ def load_trace(job):
             .outerjoin(services, spans.c.service_id == services.c.service_id)
             .where(spans.c.trace_id == job["trace_id"])
         ).mappings().all()
+        event_rows = connection.execute(
+            select(span_events).where(span_events.c.trace_id == job["trace_id"])
+        ).mappings().all()
     if trace is None:
         raise ValueError("Trace revision is unavailable")
-    return trace, span_rows
+    return trace, span_rows, event_rows
 
 
 def run_detector(detector, *args):
@@ -141,7 +150,7 @@ def run_detector(detector, *args):
 
 
 def complete_job(job):
-    trace, span_rows = load_trace(job)
+    trace, span_rows, event_rows = load_trace(job)
     critical_path = (
         calculate(trace, span_rows)
         if trace["revision"] == job["trace_revision"]
@@ -150,6 +159,7 @@ def complete_job(job):
     outcomes = [
         (LATENCY_DETECTOR_ID, LATENCY_DETECTOR_VERSION, *run_detector(detect_latency, trace, span_rows, critical_path)),
         (DETECTOR_ID, DETECTOR_VERSION, *run_detector(detect, trace, span_rows)),
+        (ERROR_ORIGIN_DETECTOR_ID, ERROR_ORIGIN_DETECTOR_VERSION, *run_detector(detect_error_origin, trace, span_rows, event_rows)),
     ]
 
     with engine.begin() as connection:
@@ -173,7 +183,7 @@ def complete_job(job):
                 trace_id=current_job["trace_id"],
                 trace_revision=current_job["trace_revision"],
                 state=run_state,
-                analysis_version="latency-contributor-v1,repeated-database-v1",
+                analysis_version="latency-contributor-v1,repeated-database-v1,error-origin-v1",
                 completed_at=func.now(),
             )
         )
@@ -221,16 +231,21 @@ def complete_job(job):
                         for evidence in finding["evidence"]
                     ],
                 )
+                references = finding.get("span_relations")
+                if references is None:
+                    references = [
+                        {"span": span, "relation": finding["relation"]} for span in finding["spans"]
+                    ]
                 connection.execute(
                     finding_spans.insert(),
                     [
                         {
                             "finding_id": finding_id,
                             "trace_id": current_job["trace_id"],
-                            "span_id": span["span_id"],
-                            "relation": finding["relation"],
+                            "span_id": reference["span"]["span_id"],
+                            "relation": reference["relation"],
                         }
-                        for span in finding["spans"]
+                        for reference in references
                     ],
                 )
         connection.execute(

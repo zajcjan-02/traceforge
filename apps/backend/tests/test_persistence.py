@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 
 from traceforge.database import engine
 from traceforge.main import app
-from traceforge.models import services, spans, trace_services, traces
+from traceforge.models import services, span_events, spans, trace_services, traces
 
 client = TestClient(app)
 
@@ -63,6 +63,27 @@ def test_duplicate_ingestion_is_ignored():
     assert span_count == 1
     assert trace["span_count"] == 1
     assert trace["revision"] == 1
+
+
+def test_persists_ordered_span_events_once():
+    request = export_request()
+    span = request.resource_spans[0].scope_spans[0].spans[0]
+    for index in range(2):
+        event = span.events.add()
+        event.name = "exception" if index == 0 else "retry"
+        event.time_unix_nano = 150 + index
+        event.attributes.add(key="exception.type").value.string_value = "Timeout"
+    send(request)
+    send(request)
+
+    with engine.connect() as connection:
+        events = connection.execute(select(span_events).order_by(span_events.c.event_index)).mappings().all()
+
+    assert [(event["event_index"], event["name"], event["timestamp_unix_ns"]) for event in events] == [
+        (0, "exception", 150),
+        (1, "retry", 151),
+    ]
+    assert events[0]["attributes"] == {"exception.type": "Timeout"}
 
 
 def test_discovers_service_without_namespace_duplicates():

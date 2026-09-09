@@ -4,7 +4,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 from opentelemetry.proto.collector.trace.v1.trace_service_pb2 import ExportTraceServiceRequest
-from opentelemetry.proto.trace.v1.trace_pb2 import Span
+from opentelemetry.proto.trace.v1.trace_pb2 import Span, Status
 
 from traceforge.critical_path import calculate
 from traceforge.ingestion.otlp import ingest_export_request
@@ -32,13 +32,16 @@ def debug_page():
 <button onclick="generate('repeated-db')">Generate repeated-database trace</button>
 <button onclick="generate('critical-path')">Generate critical-path trace</button>
 <button onclick="generate('latency-contributor')">Generate latency-contributor trace</button>
-<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="findings"></div><table id="spans"></table>
+<button onclick="generate('propagated-error')">Generate propagated-error trace</button>
+<button onclick="generate('independent-errors')">Generate independent-errors trace</button>
+<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="errors"></div><div id="findings"></div><table id="spans"></table>
 <details><summary>Raw JSON</summary><pre id="raw"></pre></details>
 <script>
 const status = document.querySelector('#status'), trace = document.querySelector('#trace');
 const findings = document.querySelector('#findings'), spans = document.querySelector('#spans');
 const criticalPath = document.querySelector('#critical-path');
 const latency = document.querySelector('#latency');
+const errors = document.querySelector('#errors');
 const raw = document.querySelector('#raw');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function render(data) {
@@ -46,9 +49,11 @@ function render(data) {
   trace.textContent = `Trace: ${item.trace_id}\nRevision: ${item.revision}\nCompleteness: ${item.completeness_state}\nAnalysis: ${item.analysis_state}\nSpans: ${item.span_count}\nServices: ${item.services.length}`;
   const list = data.analysis.current_run?.findings ?? [];
   const contributors = list.filter(finding => finding.type === 'MAJOR_LATENCY_CONTRIBUTOR');
+  const origins = list.filter(finding => finding.type === 'LIKELY_ERROR_ORIGIN');
   latency.innerHTML = contributors.length ? `<h2>Latency contributors</h2>${contributors.map(finding => { const value = finding.structured_data; return `<p><strong>${escape(value.service)} / ${escape(value.span_name)}</strong><br>Contribution: ${escape(value.contribution_ns)} ns of ${escape(value.critical_path_duration_ns)} ns (${escape(value.contribution_fraction)})<br>Canonical duration: ${escape(value.canonical_duration_ns)} ns<br>Severity: ${escape(finding.severity)}; confidence: ${escape(finding.confidence)}; span: ${escape(finding.related_span_ids.join(', '))}</p>`; }).join('')}` : '';
+  errors.innerHTML = origins.length ? `<h2>Error origins</h2>${origins.map(finding => { const value = finding.structured_data; return `<p><strong>${escape(value.service)} / ${escape(value.span_name)}</strong><br>First error: ${escape(value.first_error_timestamp_unix_ns)}; ${escape(value.error_source)} / ${escape(value.error_type)}<br>Chain: ${escape(value.propagation_span_ids.join(' → '))}<br>Severity: ${escape(finding.severity)}; confidence: ${escape(finding.confidence)}; related: ${escape(finding.related_span_ids.join(', '))}</p>`; }).join('')}` : '';
   findings.innerHTML = list.length ? list.map(finding => `<h2>${escape(finding.type)}</h2><p>${escape(finding.severity)} / ${escape(finding.confidence)} — ${escape(finding.summary)}</p><pre>${escape(JSON.stringify(finding.structured_data, null, 2))}</pre>`).join('') : '<p>No findings.</p>';
-  spans.innerHTML = '<tr><th>Name</th><th>Service</th><th>Kind</th><th>Duration</th><th>Parent</th></tr>' + data.spans.map(span => `<tr><td>${escape(span.name)}</td><td>${escape(span.service?.name)}</td><td>${escape(span.span_kind)}</td><td>${escape(span.duration_ns)}</td><td>${escape(span.parent_span_id)}</td></tr>`).join('');
+  spans.innerHTML = '<tr><th>Name</th><th>Service</th><th>Kind</th><th>Duration</th><th>Parent</th><th>Events</th></tr>' + data.spans.map(span => `<tr><td>${escape(span.name)}</td><td>${escape(span.service?.name)}</td><td>${escape(span.span_kind)}</td><td>${escape(span.duration_ns)}</td><td>${escape(span.parent_span_id)}</td><td>${escape((span.events ?? []).map(event => `${event.name} @ ${event.timestamp_unix_ns} (${event.attributes['exception.type'] ?? ''})`).join(', '))}</td></tr>`).join('');
   raw.textContent = JSON.stringify(data, null, 2);
 }
 function renderCriticalPath(result) {
@@ -169,6 +174,53 @@ def latency_contributor_request(trace_id):
     return request
 
 
+def error_span(request, trace_id, service, span_id, parent_span_id, name, start, end, exception=False):
+    resource = request.resource_spans.add().resource
+    resource.attributes.add(key="service.name").value.string_value = service
+    span = request.resource_spans[-1].scope_spans.add().spans.add()
+    span.trace_id = trace_id
+    span.span_id = span_id.to_bytes(8, "big")
+    if parent_span_id is not None:
+        span.parent_span_id = parent_span_id.to_bytes(8, "big")
+    span.name = name
+    span.kind = Span.SPAN_KIND_SERVER
+    span.start_time_unix_nano = start
+    span.end_time_unix_nano = end
+    span.status.code = Status.STATUS_CODE_ERROR
+    if exception:
+        event = span.events.add()
+        event.name = "exception"
+        event.time_unix_nano = start + 100
+        event.attributes.add(key="exception.type").value.string_value = "DatabaseTimeout"
+        event.attributes.add(key="exception.message").value.string_value = "database timeout"
+    return span
+
+
+def propagated_error_request(trace_id):
+    request = ExportTraceServiceRequest()
+    error_span(request, trace_id, "debug-gateway", 1, None, "gateway", 0, 4_000)
+    error_span(request, trace_id, "debug-orders", 2, 1, "orders", 100, 3_500)
+    error_span(request, trace_id, "debug-payment", 3, 2, "payment", 200, 3_000)
+    error_span(request, trace_id, "debug-database", 4, 3, "database query", 300, 2_000, exception=True)
+    return request
+
+
+def independent_errors_request(trace_id):
+    request = ExportTraceServiceRequest()
+    resource = request.resource_spans.add().resource
+    resource.attributes.add(key="service.name").value.string_value = "debug-root"
+    root = request.resource_spans[0].scope_spans.add().spans.add()
+    root.trace_id = trace_id
+    root.span_id = (1).to_bytes(8, "big")
+    root.name = "request"
+    root.kind = Span.SPAN_KIND_SERVER
+    root.start_time_unix_nano = 0
+    root.end_time_unix_nano = 4_000
+    error_span(request, trace_id, "debug-inventory", 2, 1, "inventory", 100, 2_000, exception=True)
+    error_span(request, trace_id, "debug-payment", 3, 1, "payment", 200, 3_000, exception=True)
+    return request
+
+
 @router.post("/debug/generate/normal")
 def generate_normal_trace():
     require_debug()
@@ -198,6 +250,22 @@ def generate_latency_contributor_trace():
     require_debug()
     trace_id = uuid4().bytes
     ingest_export_request(latency_contributor_request(trace_id))
+    return {"trace_id": trace_id.hex()}
+
+
+@router.post("/debug/generate/propagated-error")
+def generate_propagated_error_trace():
+    require_debug()
+    trace_id = uuid4().bytes
+    ingest_export_request(propagated_error_request(trace_id))
+    return {"trace_id": trace_id.hex()}
+
+
+@router.post("/debug/generate/independent-errors")
+def generate_independent_errors_trace():
+    require_debug()
+    trace_id = uuid4().bytes
+    ingest_export_request(independent_errors_request(trace_id))
     return {"trace_id": trace_id.hex()}
 
 

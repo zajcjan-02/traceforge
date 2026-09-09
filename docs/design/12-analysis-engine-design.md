@@ -1238,6 +1238,22 @@ Its output is approximately:
 
 > Which observed error appears to precede and explain subsequent propagated failures?
 
+### Implemented v0.1 Rules
+
+TraceForge recognizes `exception` span events, `status = ERROR`, HTTP 5xx from
+`http.response.status_code` or `http.status_code`, and gRPC failures from
+`rpc.system.name = grpc` with `rpc.response.status_code` other than `OK`.
+Legacy integer `rpc.grpc.status_code` remains a fallback. When a recognized
+failure has `error.type`, that value is preserved as its classification.
+
+An origin must occur strictly before at least one errored ancestor in an intact
+parent chain. Equal timestamps, earlier ancestor errors, missing chain links,
+or an earlier errored descendant make the candidate ineligible. Independent
+sibling branches are evaluated independently. A complete chain with concrete
+exception evidence and root reachability is `HIGH` confidence; other intact,
+ordered chains are `MEDIUM`. Severity is `HIGH` when propagation reaches the
+root request span and `MEDIUM` otherwise.
+
 ---
 
 ## 12.47 Error Candidate Selection
