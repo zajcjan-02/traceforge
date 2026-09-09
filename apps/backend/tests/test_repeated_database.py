@@ -141,7 +141,9 @@ def test_worker_persists_finding_evidence_span_references_and_api():
         finding = connection.execute(select(findings)).mappings().one()
         evidence_count = connection.execute(select(func.count()).select_from(finding_evidence)).scalar_one()
         span_count = connection.execute(select(func.count()).select_from(finding_spans)).scalar_one()
-        result = connection.execute(select(detector_results)).mappings().one()
+        result = connection.execute(
+            select(detector_results).where(detector_results.c.detector_id == "repeated_database_operation")
+        ).mappings().one()
     response = client.get(f"/api/v1/traces/{trace_id}")
     current_run = response.json()["analysis"]["current_run"]
 
@@ -218,7 +220,9 @@ def test_detector_failure_preserves_canonical_spans(monkeypatch):
 
     assert complete_job(job)
     with engine.connect() as connection:
-        result = connection.execute(select(detector_results)).mappings().one()
+        result = connection.execute(
+            select(detector_results).where(detector_results.c.detector_id == "repeated_database_operation")
+        ).mappings().one()
         current_count = connection.execute(select(func.count()).select_from(spans)).scalar_one()
 
     assert result["state"] == "FAILED"

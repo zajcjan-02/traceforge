@@ -80,6 +80,7 @@ def detect(trace, span_rows):
         count = len(group)
         findings.append(
             {
+                "type": "REPEATED_DATABASE_OPERATION",
                 "severity": "MEDIUM" if sequential_count >= threshold else "LOW",
                 "confidence": confidence,
                 "title": "Repeated database operation",
@@ -97,7 +98,29 @@ def detect(trace, span_rows):
                     "database_name": group[0]["attributes"].get("db.namespace")
                     or group[0]["attributes"].get("db.name"),
                 },
+                "evidence": [
+                    {"type": "OPERATION_COUNT", "structured_data": {"count": count}},
+                    {
+                        "type": "OPERATION_TIMING",
+                        "structured_data": {
+                            "sequential_count": sequential_count,
+                            "combined_duration_ns": sum(span["duration_ns"] for span in group),
+                        },
+                    },
+                    {
+                        "type": "OPERATION_CONTEXT",
+                        "structured_data": {
+                            "normalized_operation": group[0]["operation"],
+                            "service": group[0]["service_name"],
+                            "database_system": group[0]["attributes"].get("db.system.name")
+                            or group[0]["attributes"].get("db.system"),
+                            "database_name": group[0]["attributes"].get("db.namespace")
+                            or group[0]["attributes"].get("db.name"),
+                        },
+                    },
+                ],
                 "spans": group,
+                "relation": "REPEATED_OPERATION",
             }
         )
 

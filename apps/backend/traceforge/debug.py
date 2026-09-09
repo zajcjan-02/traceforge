@@ -31,18 +31,22 @@ def debug_page():
 <button onclick="generate('normal')">Generate normal trace</button>
 <button onclick="generate('repeated-db')">Generate repeated-database trace</button>
 <button onclick="generate('critical-path')">Generate critical-path trace</button>
-<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="findings"></div><table id="spans"></table>
+<button onclick="generate('latency-contributor')">Generate latency-contributor trace</button>
+<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="findings"></div><table id="spans"></table>
 <details><summary>Raw JSON</summary><pre id="raw"></pre></details>
 <script>
 const status = document.querySelector('#status'), trace = document.querySelector('#trace');
 const findings = document.querySelector('#findings'), spans = document.querySelector('#spans');
 const criticalPath = document.querySelector('#critical-path');
+const latency = document.querySelector('#latency');
 const raw = document.querySelector('#raw');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function render(data) {
   const item = data.trace;
   trace.textContent = `Trace: ${item.trace_id}\nRevision: ${item.revision}\nCompleteness: ${item.completeness_state}\nAnalysis: ${item.analysis_state}\nSpans: ${item.span_count}\nServices: ${item.services.length}`;
   const list = data.analysis.current_run?.findings ?? [];
+  const contributors = list.filter(finding => finding.type === 'MAJOR_LATENCY_CONTRIBUTOR');
+  latency.innerHTML = contributors.length ? `<h2>Latency contributors</h2>${contributors.map(finding => { const value = finding.structured_data; return `<p><strong>${escape(value.service)} / ${escape(value.span_name)}</strong><br>Contribution: ${escape(value.contribution_ns)} ns of ${escape(value.critical_path_duration_ns)} ns (${escape(value.contribution_fraction)})<br>Canonical duration: ${escape(value.canonical_duration_ns)} ns<br>Severity: ${escape(finding.severity)}; confidence: ${escape(finding.confidence)}; span: ${escape(finding.related_span_ids.join(', '))}</p>`; }).join('')}` : '';
   findings.innerHTML = list.length ? list.map(finding => `<h2>${escape(finding.type)}</h2><p>${escape(finding.severity)} / ${escape(finding.confidence)} — ${escape(finding.summary)}</p><pre>${escape(JSON.stringify(finding.structured_data, null, 2))}</pre>`).join('') : '<p>No findings.</p>';
   spans.innerHTML = '<tr><th>Name</th><th>Service</th><th>Kind</th><th>Duration</th><th>Parent</th></tr>' + data.spans.map(span => `<tr><td>${escape(span.name)}</td><td>${escape(span.service?.name)}</td><td>${escape(span.span_kind)}</td><td>${escape(span.duration_ns)}</td><td>${escape(span.parent_span_id)}</td></tr>`).join('');
   raw.textContent = JSON.stringify(data, null, 2);
@@ -141,6 +145,30 @@ def critical_path_request(trace_id):
     return request
 
 
+def latency_contributor_request(trace_id):
+    request = ExportTraceServiceRequest()
+    root_resource = request.resource_spans.add().resource
+    root_resource.attributes.add(key="service.name").value.string_value = "debug-checkout"
+    root = request.resource_spans[0].scope_spans.add().spans.add()
+    root.trace_id = trace_id
+    root.span_id = (1).to_bytes(8, "big")
+    root.name = "checkout"
+    root.kind = Span.SPAN_KIND_SERVER
+    root.start_time_unix_nano = 0
+    root.end_time_unix_nano = 3_000_000_000
+    payment_resource = request.resource_spans.add().resource
+    payment_resource.attributes.add(key="service.name").value.string_value = "debug-payment"
+    payment = request.resource_spans[1].scope_spans.add().spans.add()
+    payment.trace_id = trace_id
+    payment.span_id = (2).to_bytes(8, "big")
+    payment.parent_span_id = root.span_id
+    payment.name = "charge payment"
+    payment.kind = Span.SPAN_KIND_CLIENT
+    payment.start_time_unix_nano = 500_000_000
+    payment.end_time_unix_nano = 2_800_000_000
+    return request
+
+
 @router.post("/debug/generate/normal")
 def generate_normal_trace():
     require_debug()
@@ -162,6 +190,14 @@ def generate_critical_path_trace():
     require_debug()
     trace_id = uuid4().bytes
     ingest_export_request(critical_path_request(trace_id))
+    return {"trace_id": trace_id.hex()}
+
+
+@router.post("/debug/generate/latency-contributor")
+def generate_latency_contributor_trace():
+    require_debug()
+    trace_id = uuid4().bytes
+    ingest_export_request(latency_contributor_request(trace_id))
     return {"trace_id": trace_id.hex()}
 
 

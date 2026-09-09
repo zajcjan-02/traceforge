@@ -28,6 +28,7 @@ def test_debug_routes_are_disabled_by_default(monkeypatch):
 
     assert client.get("/debug").status_code == 404
     assert client.post("/debug/generate/normal").status_code == 404
+    assert client.post("/debug/generate/latency-contributor").status_code == 404
     assert client.get("/debug/critical-path/0123456789abcdef0123456789abcdef").status_code == 404
 
 
@@ -43,6 +44,7 @@ def test_debug_page_and_normal_scenario(monkeypatch):
     assert page.status_code == 200
     assert "Generate normal trace" in page.text
     assert "Generate critical-path trace" in page.text
+    assert "Generate latency-contributor trace" in page.text
     assert "Raw JSON" in page.text
     assert detail["trace"]["completeness_state"] == "COMPLETE"
     assert detail["analysis"]["state"] == "COMPLETE"
@@ -81,3 +83,31 @@ def test_critical_path_scenario_displays_deterministic_segments(monkeypatch):
         ("0000000000000003", 200, 900),
         ("0000000000000001", 900, 1000),
     ]
+
+
+def test_latency_contributor_scenario_creates_a_finding(monkeypatch):
+    monkeypatch.setenv("TRACEFORGE_DEBUG_UI", "true")
+
+    trace_id = client.post("/debug/generate/latency-contributor").json()["trace_id"]
+    finish(trace_id)
+    detail = client.get(f"/api/v1/traces/{trace_id}").json()
+    finding = next(
+        finding
+        for finding in detail["analysis"]["current_run"]["findings"]
+        if finding["type"] == "MAJOR_LATENCY_CONTRIBUTOR"
+    )
+
+    assert finding["structured_data"]["service"] == "debug-payment"
+    assert finding["structured_data"]["contribution_ns"] == 2_300_000_000
+    assert finding["structured_data"]["critical_path_duration_ns"] == 3_000_000_000
+    assert finding["structured_data"]["canonical_duration_ns"] == 2_300_000_000
+    assert finding["related_span_ids"] == ["0000000000000002"]
+    assert next(
+        result
+        for result in detail["analysis"]["current_run"]["detector_results"]
+        if result["detector_id"] == "latency_contributor"
+    )["state"] == "SUCCESS_WITH_FINDINGS"
+    assert {evidence["type"] for evidence in finding["evidence"]} == {
+        "CRITICAL_PATH_CONTRIBUTION",
+        "CRITICAL_PATH_SEGMENTS",
+    }

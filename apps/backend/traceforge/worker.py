@@ -7,6 +7,11 @@ from sqlalchemy import func, select, update
 
 from traceforge.critical_path import calculate
 from traceforge.database import engine
+from traceforge.latency_contributor import (
+    DETECTOR_ID as LATENCY_DETECTOR_ID,
+    DETECTOR_VERSION as LATENCY_DETECTOR_VERSION,
+    detect as detect_latency,
+)
 from traceforge.models import (
     analysis_jobs,
     analysis_runs,
@@ -127,18 +132,25 @@ def load_trace(job):
     return trace, span_rows
 
 
-def complete_job(job):
-    trace, span_rows = load_trace(job)
+def run_detector(detector, *args):
     started_at = time.perf_counter_ns()
     try:
-        if trace["revision"] == job["trace_revision"]:
-            calculate(trace, span_rows)
-        outcome = detect(trace, span_rows)
-        failure_reason = None
+        return detector(*args), time.perf_counter_ns() - started_at, None
     except Exception as error:
-        outcome = {"state": "FAILED", "findings": []}
-        failure_reason = str(error)
-    duration_ns = time.perf_counter_ns() - started_at
+        return {"state": "FAILED", "findings": []}, time.perf_counter_ns() - started_at, str(error)
+
+
+def complete_job(job):
+    trace, span_rows = load_trace(job)
+    critical_path = (
+        calculate(trace, span_rows)
+        if trace["revision"] == job["trace_revision"]
+        else {"state": "UNAVAILABLE"}
+    )
+    outcomes = [
+        (LATENCY_DETECTOR_ID, LATENCY_DETECTOR_VERSION, *run_detector(detect_latency, trace, span_rows, critical_path)),
+        (DETECTOR_ID, DETECTOR_VERSION, *run_detector(detect, trace, span_rows)),
+    ]
 
     with engine.begin() as connection:
         current_job = connection.execute(
@@ -154,91 +166,73 @@ def complete_job(job):
             return False
 
         run_id = uuid4()
-        result_id = uuid4()
-        run_state = "FAILED" if outcome["state"] == "FAILED" else "COMPLETE"
+        run_state = "FAILED" if any(outcome[2]["state"] == "FAILED" for outcome in outcomes) else "COMPLETE"
         connection.execute(
             analysis_runs.insert().values(
                 analysis_run_id=run_id,
                 trace_id=current_job["trace_id"],
                 trace_revision=current_job["trace_revision"],
                 state=run_state,
-                analysis_version="repeated-database-v1",
+                analysis_version="latency-contributor-v1,repeated-database-v1",
                 completed_at=func.now(),
             )
         )
-        connection.execute(
-            detector_results.insert().values(
-                detector_result_id=result_id,
-                analysis_run_id=run_id,
-                detector_id=DETECTOR_ID,
-                detector_version=DETECTOR_VERSION,
-                state=outcome["state"],
-                duration_ns=duration_ns,
-                failure_reason=failure_reason,
-            )
-        )
-        for finding in outcome["findings"]:
-            finding_id = uuid4()
+        for detector_id, detector_version, outcome, duration_ns, failure_reason in outcomes:
+            result_id = uuid4()
             connection.execute(
-                findings.insert().values(
-                    finding_id=finding_id,
-                    analysis_run_id=run_id,
-                    trace_id=current_job["trace_id"],
-                    trace_revision=current_job["trace_revision"],
+                detector_results.insert().values(
                     detector_result_id=result_id,
-                    finding_type="REPEATED_DATABASE_OPERATION",
-                    severity=finding["severity"],
-                    confidence=finding["confidence"],
-                    title=finding["title"],
-                    summary=finding["summary"],
-                    observation=finding["observation"],
-                    interpretation=finding["interpretation"],
-                    structured_data=finding["structured_data"],
+                    analysis_run_id=run_id,
+                    detector_id=detector_id,
+                    detector_version=detector_version,
+                    state=outcome["state"],
+                    duration_ns=duration_ns,
+                    failure_reason=failure_reason,
                 )
             )
-            connection.execute(
-                finding_evidence.insert(),
-                [
-                    {
-                        "evidence_id": uuid4(),
-                        "finding_id": finding_id,
-                        "evidence_type": "OPERATION_COUNT",
-                        "structured_data": {"count": finding["structured_data"]["count"]},
-                    },
-                    {
-                        "evidence_id": uuid4(),
-                        "finding_id": finding_id,
-                        "evidence_type": "OPERATION_TIMING",
-                        "structured_data": {
-                            "sequential_count": finding["structured_data"]["sequential_count"],
-                            "combined_duration_ns": finding["structured_data"]["combined_duration_ns"],
-                        },
-                    },
-                    {
-                        "evidence_id": uuid4(),
-                        "finding_id": finding_id,
-                        "evidence_type": "OPERATION_CONTEXT",
-                        "structured_data": {
-                            "normalized_operation": finding["structured_data"]["normalized_operation"],
-                            "service": finding["structured_data"]["service"],
-                            "database_system": finding["structured_data"]["database_system"],
-                            "database_name": finding["structured_data"]["database_name"],
-                        },
-                    },
-                ],
-            )
-            connection.execute(
-                finding_spans.insert(),
-                [
-                    {
-                        "finding_id": finding_id,
-                        "trace_id": current_job["trace_id"],
-                        "span_id": span["span_id"],
-                        "relation": "REPEATED_OPERATION",
-                    }
-                    for span in finding["spans"]
-                ],
-            )
+            for finding in outcome["findings"]:
+                finding_id = uuid4()
+                connection.execute(
+                    findings.insert().values(
+                        finding_id=finding_id,
+                        analysis_run_id=run_id,
+                        trace_id=current_job["trace_id"],
+                        trace_revision=current_job["trace_revision"],
+                        detector_result_id=result_id,
+                        finding_type=finding["type"],
+                        severity=finding["severity"],
+                        confidence=finding["confidence"],
+                        title=finding["title"],
+                        summary=finding["summary"],
+                        observation=finding["observation"],
+                        interpretation=finding["interpretation"],
+                        structured_data=finding["structured_data"],
+                    )
+                )
+                connection.execute(
+                    finding_evidence.insert(),
+                    [
+                        {
+                            "evidence_id": uuid4(),
+                            "finding_id": finding_id,
+                            "evidence_type": evidence["type"],
+                            "structured_data": evidence["structured_data"],
+                        }
+                        for evidence in finding["evidence"]
+                    ],
+                )
+                connection.execute(
+                    finding_spans.insert(),
+                    [
+                        {
+                            "finding_id": finding_id,
+                            "trace_id": current_job["trace_id"],
+                            "span_id": span["span_id"],
+                            "relation": finding["relation"],
+                        }
+                        for span in finding["spans"]
+                    ],
+                )
         connection.execute(
             update(analysis_jobs)
             .where(
@@ -252,7 +246,7 @@ def complete_job(job):
             traces.c.trace_id == current_job["trace_id"],
             traces.c.revision == current_job["trace_revision"],
         )
-        if outcome["state"] == "FAILED":
+        if run_state == "FAILED":
             connection.execute(trace_update.values(analysis_state="FAILED", current_analysis_run_id=None))
         else:
             connection.execute(

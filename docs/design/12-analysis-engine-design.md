@@ -776,17 +776,10 @@ missing parents, root ambiguity, cycles, or children that do not overlap their
 parent. Available results have ordered, non-overlapping segments whose
 contributions exactly cover the root interval.
 
-Critical-path confidence may be reduced by:
-
-```text
-missing parents
-multiple roots
-invalid timestamps
-significant clock skew
-large orphaned subtrees
-```
-
-The algorithm may still produce a useful estimate, but findings depending on it should inherit appropriate uncertainty.
+The v0.1 implementation is conservative: an unavailable critical path produces
+no latency attribution. Missing parents, root ambiguity, invalid timestamps,
+cycles, incomplete traces, and non-overlapping parent/child timing therefore
+produce `SKIPPED_INSUFFICIENT_DATA` for latency analysis.
 
 ---
 
@@ -849,28 +842,35 @@ A finding should not be generated for every span on the critical path.
 
 A configurable threshold should determine significance.
 
-For example, a span may qualify when:
+In v0.1, a span qualifies only when both are true:
 
 ```text
-contribution >= absolute_threshold
+contribution >= TRACE_LATENCY_MIN_CONTRIBUTION_NS
 ```
 
 and/or:
 
 ```text
-contribution / trace_duration >= relative_threshold
+contribution / critical_path_duration >= TRACE_LATENCY_MIN_CONTRIBUTION_FRACTION
 ```
 
-Illustrative values:
+Defaults are:
 
 ```text
 absolute >= 100 ms
 relative >= 25%
 ```
 
-These values are NOT yet final.
+```text
+TRACE_LATENCY_MIN_CONTRIBUTION_NS = 100000000 (100 ms)
+TRACE_LATENCY_MIN_CONTRIBUTION_FRACTION = 0.25
+```
 
-They should be validated using demo traces.
+Threshold comparisons are inclusive. Severity is `HIGH` at contribution
+fractions of 0.50 or greater and `MEDIUM` otherwise. An available v0.1
+critical path yields `HIGH` confidence; unavailable paths yield no finding.
+Finding evidence records both the canonical span duration and the sum of the
+critical-path intervals attributed to that span.
 
 ---
 
