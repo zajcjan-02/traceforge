@@ -31,6 +31,7 @@ def test_debug_routes_are_disabled_by_default(monkeypatch):
     assert client.post("/debug/generate/latency-contributor").status_code == 404
     assert client.post("/debug/generate/propagated-error").status_code == 404
     assert client.post("/debug/generate/service-dependency").status_code == 404
+    assert client.post("/debug/generate/repeated-downstream").status_code == 404
     assert client.get("/debug/critical-path/0123456789abcdef0123456789abcdef").status_code == 404
 
 
@@ -49,6 +50,7 @@ def test_debug_page_and_normal_scenario(monkeypatch):
     assert "Generate latency-contributor trace" in page.text
     assert "Generate propagated-error trace" in page.text
     assert "Generate service-dependency trace" in page.text
+    assert "Generate repeated-downstream trace" in page.text
     assert "Raw JSON" in page.text
     assert detail["trace"]["completeness_state"] == "COMPLETE"
     assert detail["analysis"]["state"] == "COMPLETE"
@@ -174,3 +176,21 @@ def test_service_dependency_scenario_exposes_direct_edges(monkeypatch):
         "debug-inventory",
         "debug-payment",
     ]
+
+
+def test_repeated_downstream_scenario_creates_a_finding(monkeypatch):
+    monkeypatch.setenv("TRACEFORGE_DEBUG_UI", "true")
+
+    trace_id = client.post("/debug/generate/repeated-downstream").json()["trace_id"]
+    finish(trace_id)
+    detail = client.get(f"/api/v1/traces/{trace_id}").json()
+    finding = next(
+        item
+        for item in detail["analysis"]["current_run"]["findings"]
+        if item["type"] == "REPEATED_DOWNSTREAM_OPERATION"
+    )
+
+    assert finding["structured_data"]["source_service"] == "debug-orders"
+    assert finding["structured_data"]["target_peer"] == "debug-inventory:8080"
+    assert finding["structured_data"]["normalized_operation"] == "GET /products/{id}"
+    assert finding["structured_data"]["sequential_count"] == 5

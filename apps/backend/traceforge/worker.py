@@ -30,6 +30,11 @@ from traceforge.models import (
     traces,
 )
 from traceforge.repeated_database import DETECTOR_ID, DETECTOR_VERSION, detect
+from traceforge.repeated_downstream import (
+    DETECTOR_ID as DOWNSTREAM_DETECTOR_ID,
+    DETECTOR_VERSION as DOWNSTREAM_DETECTOR_VERSION,
+    detect as detect_downstream,
+)
 
 
 def max_attempts():
@@ -160,6 +165,7 @@ def complete_job(job):
         (LATENCY_DETECTOR_ID, LATENCY_DETECTOR_VERSION, *run_detector(detect_latency, trace, span_rows, critical_path)),
         (DETECTOR_ID, DETECTOR_VERSION, *run_detector(detect, trace, span_rows)),
         (ERROR_ORIGIN_DETECTOR_ID, ERROR_ORIGIN_DETECTOR_VERSION, *run_detector(detect_error_origin, trace, span_rows, event_rows)),
+        (DOWNSTREAM_DETECTOR_ID, DOWNSTREAM_DETECTOR_VERSION, *run_detector(detect_downstream, trace, span_rows)),
     ]
 
     with engine.begin() as connection:
@@ -183,7 +189,7 @@ def complete_job(job):
                 trace_id=current_job["trace_id"],
                 trace_revision=current_job["trace_revision"],
                 state=run_state,
-                analysis_version="latency-contributor-v1,repeated-database-v1,error-origin-v1",
+                analysis_version="latency-contributor-v1,repeated-database-v1,error-origin-v1,repeated-downstream-v1",
                 completed_at=func.now(),
             )
         )

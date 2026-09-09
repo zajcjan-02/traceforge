@@ -35,7 +35,8 @@ def debug_page():
 <button onclick="generate('propagated-error')">Generate propagated-error trace</button>
 <button onclick="generate('independent-errors')">Generate independent-errors trace</button>
 <button onclick="generate('service-dependency')">Generate service-dependency trace</button>
-<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="errors"></div><div id="dependencies"></div><div id="findings"></div><table id="spans"></table>
+<button onclick="generate('repeated-downstream')">Generate repeated-downstream trace</button>
+<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="errors"></div><div id="dependencies"></div><div id="downstream"></div><div id="findings"></div><table id="spans"></table>
 <details><summary>Raw JSON</summary><pre id="raw"></pre></details>
 <script>
 const status = document.querySelector('#status'), trace = document.querySelector('#trace');
@@ -44,6 +45,7 @@ const criticalPath = document.querySelector('#critical-path');
 const latency = document.querySelector('#latency');
 const errors = document.querySelector('#errors');
 const dependencies = document.querySelector('#dependencies');
+const downstream = document.querySelector('#downstream');
 const raw = document.querySelector('#raw');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function render(data) {
@@ -52,9 +54,11 @@ function render(data) {
   const list = data.analysis.current_run?.findings ?? [];
   const contributors = list.filter(finding => finding.type === 'MAJOR_LATENCY_CONTRIBUTOR');
   const origins = list.filter(finding => finding.type === 'LIKELY_ERROR_ORIGIN');
+  const repeatedDownstream = list.filter(finding => finding.type === 'REPEATED_DOWNSTREAM_OPERATION');
   latency.innerHTML = contributors.length ? `<h2>Latency contributors</h2>${contributors.map(finding => { const value = finding.structured_data; return `<p><strong>${escape(value.service)} / ${escape(value.span_name)}</strong><br>Contribution: ${escape(value.contribution_ns)} ns of ${escape(value.critical_path_duration_ns)} ns (${escape(value.contribution_fraction)})<br>Canonical duration: ${escape(value.canonical_duration_ns)} ns<br>Severity: ${escape(finding.severity)}; confidence: ${escape(finding.confidence)}; span: ${escape(finding.related_span_ids.join(', '))}</p>`; }).join('')}` : '';
   errors.innerHTML = origins.length ? `<h2>Error origins</h2>${origins.map(finding => { const value = finding.structured_data; return `<p><strong>${escape(value.service)} / ${escape(value.span_name)}</strong><br>First error: ${escape(value.first_error_timestamp_unix_ns)}; ${escape(value.error_source)} / ${escape(value.error_type)}<br>Chain: ${escape(value.propagation_span_ids.join(' → '))}<br>Severity: ${escape(finding.severity)}; confidence: ${escape(finding.confidence)}; related: ${escape(finding.related_span_ids.join(', '))}</p>`; }).join('')}` : '';
   findings.innerHTML = list.length ? list.map(finding => `<h2>${escape(finding.type)}</h2><p>${escape(finding.severity)} / ${escape(finding.confidence)} — ${escape(finding.summary)}</p><pre>${escape(JSON.stringify(finding.structured_data, null, 2))}</pre>`).join('') : '<p>No findings.</p>';
+  downstream.innerHTML = repeatedDownstream.length ? `<h2>Repeated downstream operations</h2>${repeatedDownstream.map(finding => { const value = finding.structured_data; return `<p><strong>${escape(value.source_service)} to ${escape(value.target_peer)}</strong><br>${escape(value.protocol)} ${escape(value.normalized_operation)}<br>Count: ${escape(value.count)}; sequential: ${escape(value.sequential_count)}; duration: ${escape(value.combined_duration_ns)} ns<br>Severity: ${escape(finding.severity)}; confidence: ${escape(finding.confidence)}; spans: ${escape(finding.related_span_ids.join(', '))}</p>`; }).join('')}` : '';
   spans.innerHTML = '<tr><th>Name</th><th>Service</th><th>Kind</th><th>Duration</th><th>Parent</th><th>Events</th></tr>' + data.spans.map(span => `<tr><td>${escape(span.name)}</td><td>${escape(span.service?.name)}</td><td>${escape(span.span_kind)}</td><td>${escape(span.duration_ns)}</td><td>${escape(span.parent_span_id)}</td><td>${escape((span.events ?? []).map(event => `${event.name} @ ${event.timestamp_unix_ns} (${event.attributes['exception.type'] ?? ''})`).join(', '))}</td></tr>`).join('');
   raw.textContent = JSON.stringify(data, null, 2);
 }
@@ -251,6 +255,34 @@ def service_dependency_request(trace_id):
     return request
 
 
+def repeated_downstream_request(trace_id):
+    request = ExportTraceServiceRequest()
+    resource = request.resource_spans.add().resource
+    resource.attributes.add(key="service.name").value.string_value = "debug-orders"
+    scope = request.resource_spans[0].scope_spans.add()
+    root = scope.spans.add()
+    root.trace_id = trace_id
+    root.span_id = (1).to_bytes(8, "big")
+    root.name = "orders request"
+    root.kind = Span.SPAN_KIND_SERVER
+    root.start_time_unix_nano = 0
+    root.end_time_unix_nano = 200
+    for index in range(5):
+        span = scope.spans.add()
+        span.trace_id = trace_id
+        span.span_id = (index + 2).to_bytes(8, "big")
+        span.parent_span_id = root.span_id
+        span.name = "inventory request"
+        span.kind = Span.SPAN_KIND_CLIENT
+        span.start_time_unix_nano = index * 20
+        span.end_time_unix_nano = index * 20 + 10
+        span.attributes.add(key="http.request.method").value.string_value = "GET"
+        span.attributes.add(key="url.template").value.string_value = "/products/{id}"
+        span.attributes.add(key="server.address").value.string_value = "debug-inventory"
+        span.attributes.add(key="server.port").value.int_value = 8080
+    return request
+
+
 @router.post("/debug/generate/normal")
 def generate_normal_trace():
     require_debug()
@@ -304,6 +336,14 @@ def generate_service_dependency_trace():
     require_debug()
     trace_id = uuid4().bytes
     ingest_export_request(service_dependency_request(trace_id))
+    return {"trace_id": trace_id.hex()}
+
+
+@router.post("/debug/generate/repeated-downstream")
+def generate_repeated_downstream_trace():
+    require_debug()
+    trace_id = uuid4().bytes
+    ingest_export_request(repeated_downstream_request(trace_id))
     return {"trace_id": trace_id.hex()}
 
 

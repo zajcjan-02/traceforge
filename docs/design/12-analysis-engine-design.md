@@ -1166,6 +1166,27 @@ is preferable to trying to infer a template from:
 
 Heuristic path normalization should be used only when reliable semantic attributes are unavailable.
 
+### Implemented v0.1 Repeated Downstream Rules
+
+`RepeatedDownstreamOperationDetector` considers only `CLIENT` spans. HTTP
+identity requires `http.request.method`, `url.template`, and `server.address`,
+with optional `server.port`; it does not infer templates from `url.full` or
+`url.path`. Its grouping key is source service, address/port, `HTTP`, and
+`METHOD url.template`.
+
+RPC identity requires `rpc.system.name`, `rpc.method`, and `server.address`,
+with optional `server.port`. Its grouping key is source service, address/port,
+`RPC:system`, and `rpc.method`. Legacy attributes are not the v0.1 contract.
+
+Groups require at least five calls by default. Calls are sorted by start time
+and span ID; a call is sequential when it starts at or after the preceding
+call ends. More than half sequential is `MEDIUM` severity; otherwise severity
+is `LOW`. Complete traces with stable identities are `HIGH` confidence and
+incomplete traces are `MEDIUM`. Missing identity produces no finding.
+
+This detector reports repeated downstream operations only. It does not infer
+or label retries.
+
 ---
 
 ## 12.44 Retry Detection
