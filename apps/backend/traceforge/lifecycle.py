@@ -2,11 +2,11 @@ import asyncio
 import os
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 
 from traceforge.database import engine
-from traceforge.models import analysis_jobs, spans, traces
+from traceforge.models import analysis_jobs, service_dependency_observations, spans, traces
 
 
 def completion_deadline():
@@ -48,6 +48,7 @@ def evaluate_trace(trace_id):
             select(
                 spans.c.span_id,
                 spans.c.parent_span_id,
+                spans.c.service_id,
                 spans.c.start_time_unix_ns,
                 spans.c.end_time_unix_ns,
             ).where(spans.c.trace_id == trace_id)
@@ -64,6 +65,40 @@ def evaluate_trace(trace_id):
             for span in trace_spans
         )
         state = "INCOMPLETE" if missing_parent or root_count > 1 or invalid_end_time else "COMPLETE"
+
+        spans_by_id = {span["span_id"]: span for span in trace_spans}
+        edges = {}
+        for child in trace_spans:
+            parent = spans_by_id.get(child["parent_span_id"])
+            if (
+                parent is None
+                or parent["service_id"] is None
+                or child["service_id"] is None
+                or parent["service_id"] == child["service_id"]
+            ):
+                continue
+            edge = (parent["service_id"], child["service_id"])
+            edges[edge] = min(edges.get(edge, child["start_time_unix_ns"]), child["start_time_unix_ns"])
+
+        connection.execute(
+            delete(service_dependency_observations).where(
+                service_dependency_observations.c.trace_id == trace_id
+            )
+        )
+        if edges:
+            connection.execute(
+                service_dependency_observations.insert(),
+                [
+                    {
+                        "trace_id": trace_id,
+                        "source_service_id": source_service_id,
+                        "target_service_id": target_service_id,
+                        "trace_revision": trace["revision"],
+                        "observed_at": observed_at,
+                    }
+                    for (source_service_id, target_service_id), observed_at in edges.items()
+                ],
+            )
 
         connection.execute(
             update(traces)

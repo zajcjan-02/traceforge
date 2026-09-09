@@ -30,6 +30,7 @@ def test_debug_routes_are_disabled_by_default(monkeypatch):
     assert client.post("/debug/generate/normal").status_code == 404
     assert client.post("/debug/generate/latency-contributor").status_code == 404
     assert client.post("/debug/generate/propagated-error").status_code == 404
+    assert client.post("/debug/generate/service-dependency").status_code == 404
     assert client.get("/debug/critical-path/0123456789abcdef0123456789abcdef").status_code == 404
 
 
@@ -47,6 +48,7 @@ def test_debug_page_and_normal_scenario(monkeypatch):
     assert "Generate critical-path trace" in page.text
     assert "Generate latency-contributor trace" in page.text
     assert "Generate propagated-error trace" in page.text
+    assert "Generate service-dependency trace" in page.text
     assert "Raw JSON" in page.text
     assert detail["trace"]["completeness_state"] == "COMPLETE"
     assert detail["analysis"]["state"] == "COMPLETE"
@@ -156,4 +158,19 @@ def test_independent_error_scenario_does_not_create_an_origin(monkeypatch):
         finding
         for finding in detail["analysis"]["current_run"]["findings"]
         if finding["type"] == "LIKELY_ERROR_ORIGIN"
+    ]
+
+
+def test_service_dependency_scenario_exposes_direct_edges(monkeypatch):
+    monkeypatch.setenv("TRACEFORGE_DEBUG_UI", "true")
+
+    trace_id = client.post("/debug/generate/service-dependency").json()["trace_id"]
+    finish(trace_id)
+    detail = client.get(f"/api/v1/traces/{trace_id}").json()
+    orders = next(service for service in detail["trace"]["services"] if service["name"] == "debug-orders")
+    dependencies = client.get(f"/api/v1/services/{orders['service_id']}/dependencies").json()
+
+    assert [row["target_service"]["name"] for row in dependencies["outgoing"]] == [
+        "debug-inventory",
+        "debug-payment",
     ]

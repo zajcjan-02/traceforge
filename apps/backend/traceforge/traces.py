@@ -10,6 +10,7 @@ from traceforge.models import (
     finding_spans,
     findings,
     services,
+    service_dependency_observations,
     span_events,
     spans,
     trace_services,
@@ -54,6 +55,81 @@ def list_traces():
             }
             for row in rows
         ]
+    }
+
+
+@router.get("/services/{service_id}/dependencies")
+def service_dependencies(service_id: int):
+    target = services.alias("target")
+    source = services.alias("source")
+    with engine.connect() as connection:
+        service = connection.execute(
+            select(services).where(services.c.service_id == service_id)
+        ).mappings().first()
+        if service is None:
+            return JSONResponse(
+                status_code=404,
+                content={"error": {"code": "SERVICE_NOT_FOUND", "message": "Service not found."}},
+            )
+        outgoing = connection.execute(
+            select(
+                target.c.service_id.label("target_service_id"),
+                target.c.service_name.label("target_name"),
+                target.c.namespace.label("target_namespace"),
+                func.count().label("observation_count"),
+                func.min(service_dependency_observations.c.observed_at).label("first_seen_at"),
+                func.max(service_dependency_observations.c.observed_at).label("last_seen_at"),
+            )
+            .join(target, target.c.service_id == service_dependency_observations.c.target_service_id)
+            .where(service_dependency_observations.c.source_service_id == service_id)
+            .group_by(target.c.service_id, target.c.service_name, target.c.namespace)
+            .order_by(target.c.service_name, target.c.namespace)
+        ).mappings().all()
+        incoming = connection.execute(
+            select(
+                source.c.service_id.label("source_service_id"),
+                source.c.service_name.label("source_name"),
+                source.c.namespace.label("source_namespace"),
+                func.count().label("observation_count"),
+                func.min(service_dependency_observations.c.observed_at).label("first_seen_at"),
+                func.max(service_dependency_observations.c.observed_at).label("last_seen_at"),
+            )
+            .join(source, source.c.service_id == service_dependency_observations.c.source_service_id)
+            .where(service_dependency_observations.c.target_service_id == service_id)
+            .group_by(source.c.service_id, source.c.service_name, source.c.namespace)
+            .order_by(source.c.service_name, source.c.namespace)
+        ).mappings().all()
+
+    service_data = {"service_id": service["service_id"], "name": service["service_name"], "namespace": service["namespace"]}
+    return {
+        "outgoing": [
+            {
+                "source_service": service_data,
+                "target_service": {
+                    "service_id": row["target_service_id"],
+                    "name": row["target_name"],
+                    "namespace": row["target_namespace"],
+                },
+                "observation_count": row["observation_count"],
+                "first_seen_at": row["first_seen_at"],
+                "last_seen_at": row["last_seen_at"],
+            }
+            for row in outgoing
+        ],
+        "incoming": [
+            {
+                "source_service": {
+                    "service_id": row["source_service_id"],
+                    "name": row["source_name"],
+                    "namespace": row["source_namespace"],
+                },
+                "target_service": service_data,
+                "observation_count": row["observation_count"],
+                "first_seen_at": row["first_seen_at"],
+                "last_seen_at": row["last_seen_at"],
+            }
+            for row in incoming
+        ],
     }
 
 

@@ -1348,7 +1348,7 @@ service_dependency_observations (
 
     trace_revision       BIGINT NOT NULL,
 
-    observed_at          TIMESTAMPTZ NOT NULL,
+    observed_at          BIGINT NOT NULL,
 
     PRIMARY KEY(
         trace_id,
@@ -1359,6 +1359,9 @@ service_dependency_observations (
 ```
 
 The current row can be updated when the trace revision changes.
+
+In the implemented v0.1 schema, `observed_at` is the earliest child span start
+time in nanoseconds for that trace-level edge, not the finalization timestamp.
 
 ---
 

@@ -946,6 +946,9 @@ ServiceDependency {
 
 If aggregate counts are not materialized, they may be derived from dependency observations.
 
+The initial endpoint returns directed incoming and outgoing service relationships
+with telemetry-derived first/last observation times.
+
 ---
 
 ## 13.37 Service Dependency Endpoint

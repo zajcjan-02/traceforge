@@ -34,7 +34,8 @@ def debug_page():
 <button onclick="generate('latency-contributor')">Generate latency-contributor trace</button>
 <button onclick="generate('propagated-error')">Generate propagated-error trace</button>
 <button onclick="generate('independent-errors')">Generate independent-errors trace</button>
-<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="errors"></div><div id="findings"></div><table id="spans"></table>
+<button onclick="generate('service-dependency')">Generate service-dependency trace</button>
+<p id="status"></p><pre id="trace"></pre><div id="critical-path"></div><div id="latency"></div><div id="errors"></div><div id="dependencies"></div><div id="findings"></div><table id="spans"></table>
 <details><summary>Raw JSON</summary><pre id="raw"></pre></details>
 <script>
 const status = document.querySelector('#status'), trace = document.querySelector('#trace');
@@ -42,6 +43,7 @@ const findings = document.querySelector('#findings'), spans = document.querySele
 const criticalPath = document.querySelector('#critical-path');
 const latency = document.querySelector('#latency');
 const errors = document.querySelector('#errors');
+const dependencies = document.querySelector('#dependencies');
 const raw = document.querySelector('#raw');
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function render(data) {
@@ -63,6 +65,11 @@ function renderCriticalPath(result) {
   }
   criticalPath.innerHTML = `<h2>Critical path (${escape(result.duration_ns)} ns)</h2><table><tr><th>Span</th><th>Start</th><th>End</th><th>Contribution</th></tr>${result.segments.map(segment => `<tr><td>${escape(segment.span_id)}</td><td>${escape(segment.start_time_unix_ns)}</td><td>${escape(segment.end_time_unix_ns)}</td><td>${escape(segment.contribution_ns)}</td></tr>`).join('')}</table>`;
 }
+async function renderDependencies(data) {
+  const responses = await Promise.all(data.trace.services.map(service => fetch(`/api/v1/services/${service.service_id}/dependencies`).then(response => response.json())));
+  const rows = responses.flatMap(response => response.outgoing);
+  dependencies.innerHTML = rows.length ? `<h2>Service dependencies</h2><table><tr><th>Source</th><th>Target</th><th>Observations</th></tr>${rows.map(row => `<tr><td>${escape(row.source_service.name)} (${escape(row.source_service.service_id)})</td><td>${escape(row.target_service.name)} (${escape(row.target_service.service_id)})</td><td>${escape(row.observation_count)}</td></tr>`).join('')}</table>` : '';
+}
 async function generate(scenario) {
   status.textContent = 'Generating trace...';
   const created = await fetch(`/debug/generate/${scenario}`, {method: 'POST'}).then(response => response.json());
@@ -74,6 +81,7 @@ async function generate(scenario) {
     const analyzed = ['COMPLETE', 'PARTIAL', 'FAILED'].includes(data.analysis.state);
     if (complete && analyzed) {
       renderCriticalPath(await fetch(`/debug/critical-path/${created.trace_id}`).then(response => response.json()));
+      renderDependencies(data);
       status.textContent = 'Complete.';
       return;
     }
@@ -221,6 +229,28 @@ def independent_errors_request(trace_id):
     return request
 
 
+def service_dependency_request(trace_id):
+    request = ExportTraceServiceRequest()
+    for service, span_id, parent_span_id, name, start, end in [
+        ("debug-gateway", 1, None, "gateway", 0, 400),
+        ("debug-orders", 2, 1, "orders", 10, 350),
+        ("debug-inventory", 3, 2, "inventory", 20, 200),
+        ("debug-payment", 4, 2, "payment", 30, 300),
+    ]:
+        resource = request.resource_spans.add().resource
+        resource.attributes.add(key="service.name").value.string_value = service
+        span = request.resource_spans[-1].scope_spans.add().spans.add()
+        span.trace_id = trace_id
+        span.span_id = span_id.to_bytes(8, "big")
+        if parent_span_id is not None:
+            span.parent_span_id = parent_span_id.to_bytes(8, "big")
+        span.name = name
+        span.kind = Span.SPAN_KIND_SERVER
+        span.start_time_unix_nano = start
+        span.end_time_unix_nano = end
+    return request
+
+
 @router.post("/debug/generate/normal")
 def generate_normal_trace():
     require_debug()
@@ -266,6 +296,14 @@ def generate_independent_errors_trace():
     require_debug()
     trace_id = uuid4().bytes
     ingest_export_request(independent_errors_request(trace_id))
+    return {"trace_id": trace_id.hex()}
+
+
+@router.post("/debug/generate/service-dependency")
+def generate_service_dependency_trace():
+    require_debug()
+    trace_id = uuid4().bytes
+    ingest_export_request(service_dependency_request(trace_id))
     return {"trace_id": trace_id.hex()}
 
 

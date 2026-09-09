@@ -170,3 +170,14 @@ trace_services = Table(
     Column("service_id", BIGINT, ForeignKey("services.service_id"), nullable=False),
     PrimaryKeyConstraint("trace_id", "service_id"),
 )
+
+service_dependency_observations = Table(
+    "service_dependency_observations",
+    metadata,
+    Column("trace_id", LargeBinary(16), ForeignKey("traces.trace_id"), nullable=False),
+    Column("source_service_id", BIGINT, ForeignKey("services.service_id"), nullable=False),
+    Column("target_service_id", BIGINT, ForeignKey("services.service_id"), nullable=False),
+    Column("trace_revision", BIGINT, nullable=False),
+    Column("observed_at", BIGINT, nullable=False),
+    PrimaryKeyConstraint("trace_id", "source_service_id", "target_service_id"),
+)

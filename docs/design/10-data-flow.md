@@ -1206,6 +1206,11 @@ upsert dependency observations
 
 This avoids trying to infer cross-service relationships before parent spans have necessarily arrived.
 
+The implemented v0.1 rule derives only direct parent/child transitions with
+known, different service identities. Each trace contributes one observation per
+directed edge, timestamped by the earliest child span start time. Re-finalizing
+a revised trace atomically replaces its prior observations.
+
 ---
 
 ## 10.42 System Health Data Flow
