@@ -164,6 +164,59 @@ def service_dependencies(service_id: int):
     }
 
 
+@router.get("/services")
+def list_services():
+    statement = (
+        select(services, func.count(trace_services.c.trace_id).label("trace_count"))
+        .outerjoin(trace_services, services.c.service_id == trace_services.c.service_id)
+        .group_by(services.c.service_id)
+        .order_by(services.c.service_name, services.c.namespace)
+    )
+    with engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+    return {"items": [
+        {
+            "service_id": row["service_id"], "name": row["service_name"], "namespace": row["namespace"],
+            "first_seen_at": row["first_seen_at"].isoformat(), "last_seen_at": row["last_seen_at"].isoformat(),
+            "trace_count": row["trace_count"],
+        }
+        for row in rows
+    ]}
+
+
+@router.get("/services/{service_id}")
+def get_service(service_id: int):
+    all_services = trace_services.alias("all_services")
+    with engine.connect() as connection:
+        service = connection.execute(select(services).where(services.c.service_id == service_id)).mappings().first()
+        if service is None:
+            return JSONResponse(status_code=404, content={"error": {"code": "SERVICE_NOT_FOUND", "message": "Service not found."}})
+        recent_traces = connection.execute(
+            select(traces, func.count(trace_services.c.service_id).label("service_count"))
+            .join(trace_services, traces.c.trace_id == trace_services.c.trace_id)
+            .where(trace_services.c.service_id == service_id)
+            .outerjoin(all_services, traces.c.trace_id == all_services.c.trace_id)
+            .group_by(traces.c.trace_id)
+            .order_by(traces.c.last_received_at.desc())
+            .limit(20)
+        ).mappings().all()
+    return {
+        "service": {
+            "service_id": service["service_id"], "name": service["service_name"], "namespace": service["namespace"],
+            "first_seen_at": service["first_seen_at"].isoformat(), "last_seen_at": service["last_seen_at"].isoformat(),
+        },
+        "recent_traces": [
+            {
+                "trace_id": row["trace_id"].hex(), "revision": row["revision"],
+                "start_time_unix_ns": serialize_ns(row["first_span_start_ns"]), "end_time_unix_ns": serialize_ns(row["last_span_end_ns"]),
+                "duration_ns": serialize_ns(row["duration_ns"]), "span_count": row["span_count"], "service_count": row["service_count"],
+                "completeness_state": row["completeness_state"], "analysis_state": row["analysis_state"],
+            }
+            for row in recent_traces
+        ],
+    }
+
+
 @router.get("/traces/{trace_id}")
 def get_trace(trace_id: str):
     trace_id_bytes = trace_bytes(trace_id)

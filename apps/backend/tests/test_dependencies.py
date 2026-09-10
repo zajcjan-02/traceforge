@@ -83,6 +83,22 @@ def test_multihop_and_siblings_create_only_direct_edges():
     assert not gateway["incoming"]
 
 
+def test_service_list_and_detail_include_stored_trace():
+    trace_id = "0123456789abcdef0123456789abcdef"
+    send(request(trace_id, [("gateway", 1, None, 0, 100), ("orders", 2, 1, 10, 90)]))
+    finalize(trace_id)
+
+    listed = client.get("/api/v1/services")
+    assert listed.status_code == 200
+    orders = next(item for item in listed.json()["items"] if item["name"] == "orders")
+    assert orders["trace_count"] == 1
+
+    detail = client.get(f"/api/v1/services/{orders['service_id']}")
+    assert detail.status_code == 200
+    assert detail.json()["service"]["name"] == "orders"
+    assert [item["trace_id"] for item in detail.json()["recent_traces"]] == [trace_id]
+
+
 def test_same_service_missing_service_and_missing_parent_create_no_edges():
     trace_id = "0123456789abcdef0123456789abcdef"
     send(

@@ -72,7 +72,7 @@ function renderCriticalPath(result) {
 async function renderDependencies(data) {
   const responses = await Promise.all(data.trace.services.map(service => fetch(`/api/v1/services/${service.service_id}/dependencies`).then(response => response.json())));
   const rows = responses.flatMap(response => response.outgoing);
-  dependencies.innerHTML = rows.length ? `<h2>Service dependencies</h2><table><tr><th>Source</th><th>Target</th><th>Observations</th></tr>${rows.map(row => `<tr><td>${escape(row.source_service.name)} (${escape(row.source_service.service_id)})</td><td>${escape(row.target_service.name)} (${escape(row.target_service.service_id)})</td><td>${escape(row.observation_count)}</td></tr>`).join('')}</table>` : '';
+  dependencies.innerHTML = rows.length ? `<h2>Aggregated service dependencies</h2><table><tr><th>Source</th><th>Target</th><th>Observations</th></tr>${rows.map(row => `<tr><td>${escape(row.source_service.name)} (${escape(row.source_service.service_id)})</td><td>${escape(row.target_service.name)} (${escape(row.target_service.service_id)})</td><td>${escape(row.observation_count)}</td></tr>`).join('')}</table>` : '';
 }
 async function generate(scenario) {
   status.textContent = 'Generating trace...';

@@ -13,6 +13,23 @@ export type TraceSummary = {
   analysis_state: string | null;
 };
 
+export type Service = {
+  service_id: number;
+  name: string;
+  namespace: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  trace_count?: number;
+};
+
+export type Dependency = {
+  source_service: Service;
+  target_service: Service;
+  observation_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+};
+
 export type Span = {
   span_id: string;
   parent_span_id: string | null;
@@ -97,4 +114,16 @@ export async function getTraces() {
 
 export async function getTrace(traceId: string) {
   return request<TraceDetail>(`/api/v1/traces/${traceId}`);
+}
+
+export async function getServices() {
+  return request<{ items: Service[] }>("/api/v1/services");
+}
+
+export async function getService(serviceId: string) {
+  return request<{ service: Service; recent_traces: TraceSummary[] }>(`/api/v1/services/${serviceId}`);
+}
+
+export async function getServiceDependencies(serviceId: string) {
+  return request<{ outgoing: Dependency[]; incoming: Dependency[] }>(`/api/v1/services/${serviceId}/dependencies`);
 }
