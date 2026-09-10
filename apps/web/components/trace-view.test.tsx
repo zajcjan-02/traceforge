@@ -48,7 +48,7 @@ function detail(analysisState: string | null = "COMPLETE"): TraceDetail {
 }
 
 describe("TraceView", () => {
-  it("renders hierarchy, concurrent timing, findings, and inspector data", () => {
+  it("selects a finding without inventing a span selection", () => {
     render(<TraceView detail={detail()} />);
 
     expect(screen.getByText("INCOMPLETE")).toBeInTheDocument();
@@ -60,9 +60,54 @@ describe("TraceView", () => {
     fireEvent.click(screen.getByText("Repeated database operation"));
     expect(screen.getByTestId("span-row-child")).toHaveClass("highlighted");
     expect(screen.getByTestId("span-row-concurrent")).toHaveClass("highlighted");
+    expect(screen.queryByText("Span inspector")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "child" }));
     expect(screen.getByText("Span inspector")).toBeInTheDocument();
+    expect(screen.getByText("Related to the selected finding.")).toBeInTheDocument();
     expect(screen.getByText(/"name": "exception"/)).toBeInTheDocument();
     expect(screen.getByText(/"exception.type": "Timeout"/)).toBeInTheDocument();
+  });
+
+  it("renders detector-specific evidence and keeps unknown findings usable", () => {
+    const value = detail();
+    value.analysis.current_run!.findings = [
+      {
+        finding_id: "latency", type: "MAJOR_LATENCY_CONTRIBUTOR", severity: "HIGH", confidence: "HIGH",
+        title: "Major latency contributor", summary: "Slow payment.", observation: null, interpretation: null,
+        structured_data: { span_id: "child", service: "orders", span_name: "database query", contribution_ns: "500", critical_path_duration_ns: "1000", contribution_fraction: 0.5, canonical_duration_ns: "900" }, related_span_ids: ["child"], evidence: [],
+      },
+      {
+        finding_id: "database", type: "REPEATED_DATABASE_OPERATION", severity: "MEDIUM", confidence: "HIGH",
+        title: "Repeated database operation", summary: "Repeated query.", observation: null, interpretation: null,
+        structured_data: { service: "orders", normalized_operation: "SELECT product", count: 5, sequential_count: 4, combined_duration_ns: "500" }, related_span_ids: ["child"], evidence: [],
+      },
+      {
+        finding_id: "origin", type: "LIKELY_ERROR_ORIGIN", severity: "HIGH", confidence: "HIGH",
+        title: "Likely error origin", summary: "Payment failed.", observation: null, interpretation: null,
+        structured_data: { origin_span_id: "child", service: "orders", span_name: "database query", error_source: "exception_event", error_type: "Timeout", first_error_timestamp_unix_ns: "9007199254740993600", has_concrete_exception: true }, related_span_ids: ["child", "root"],
+        evidence: [{ type: "ERROR_PROPAGATION_CHAIN", description: null, structured_data: { chain: [{ span_id: "child", service: "orders", span_name: "database query" }, { span_id: "root", service: "gateway", span_name: "request" }] } }],
+      },
+      {
+        finding_id: "downstream", type: "REPEATED_DOWNSTREAM_OPERATION", severity: "LOW", confidence: "MEDIUM",
+        title: "Repeated downstream operation", summary: "Repeated downstream call.", observation: null, interpretation: null,
+        structured_data: { source_service: "orders", target_peer: "inventory", protocol: "HTTP", normalized_operation: "GET /products/{id}", count: 5, sequential_count: 1, combined_duration_ns: "700" }, related_span_ids: ["concurrent"], evidence: [],
+      },
+      {
+        finding_id: "unknown", type: "FUTURE_FINDING", severity: "LOW", confidence: "LOW",
+        title: "Future finding", summary: "Unknown evidence remains visible.", observation: null, interpretation: null,
+        structured_data: { future_field: "value" }, related_span_ids: [], evidence: [],
+      },
+    ];
+    render(<TraceView detail={value} />);
+
+    expect(screen.getByText("Critical-path contribution")).toBeInTheDocument();
+    expect(screen.getByText("50.0%")).toBeInTheDocument();
+    expect(screen.getByText("SELECT product")).toBeInTheDocument();
+    expect(screen.getByText("Propagation chain")).toBeInTheDocument();
+    expect(screen.getByText("GET /products/{id}")).toBeInTheDocument();
+    fireEvent.click(screen.getAllByText("Raw evidence", { exact: true })[4]);
+    expect(screen.getByText(/"future_field": "value"/)).toBeInTheDocument();
   });
 
   it("does not confuse pending analysis with no findings", () => {
@@ -71,9 +116,33 @@ describe("TraceView", () => {
     expect(screen.getByText("Analysis is queued.")).toBeInTheDocument();
   });
 
+  it("distinguishes processing eligibility from finalized legacy traces", () => {
+    const processing = detail(null);
+    processing.trace.completeness_state = "PROCESSING";
+    render(<TraceView detail={processing} />);
+    expect(screen.getByText("NOT ELIGIBLE")).toBeInTheDocument();
+    expect(screen.getByText("Analysis becomes eligible after trace finalization.")).toBeInTheDocument();
+
+    const legacy = detail(null);
+    legacy.trace.completeness_state = "COMPLETE";
+    render(<TraceView detail={legacy} />);
+    expect(screen.getByText("NOT ANALYZED")).toBeInTheDocument();
+    expect(screen.getByText("No analysis was scheduled for this trace.")).toBeInTheDocument();
+  });
+
   it("makes failed analysis explicit", () => {
     render(<TraceView detail={detail("FAILED")} />);
 
     expect(screen.getByText("Analysis failed. Raw telemetry remains available.")).toBeInTheDocument();
+  });
+
+  it("shows partial analysis and incomplete telemetry without hiding findings", () => {
+    const value = detail("PARTIAL");
+    value.analysis.current_run = { analysis_run_id: "run", trace_revision: 2, state: "PARTIAL", detector_results: [], findings: detail().analysis.current_run!.findings };
+    render(<TraceView detail={value} />);
+
+    expect(screen.getAllByText(/This trace is incomplete/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Analysis is partial/)).toBeInTheDocument();
+    expect(screen.getByText("Repeated database operation")).toBeInTheDocument();
   });
 });

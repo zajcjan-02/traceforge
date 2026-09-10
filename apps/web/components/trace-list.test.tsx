@@ -1,5 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 
 import { TraceList } from "./trace-list";
 
@@ -23,5 +25,16 @@ describe("TraceList", () => {
     render(<TraceList traces={[]} />);
 
     expect(screen.getByText("No traces received yet.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate trace" })).toBeInTheDocument();
+  });
+
+  it("sorts traces by start time", () => {
+    const older = { ...trace, trace_id: "older", start_time_unix_ns: "1" };
+    const newer = { ...trace, trace_id: "newer", start_time_unix_ns: "2" };
+    render(<TraceList traces={[older, newer]} />);
+
+    expect(screen.getAllByRole("link")[0]).toHaveAttribute("href", "/traces/newer");
+    fireEvent.change(screen.getByRole("combobox", { name: /sort/i }), { target: { value: "oldest" } });
+    expect(screen.getAllByRole("link")[0]).toHaveAttribute("href", "/traces/older");
   });
 });

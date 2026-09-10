@@ -11,6 +11,6 @@ export default async function TracePage({ params }: { params: Promise<{ traceId:
     return <TraceView detail={await getTrace(traceId)} />;
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
-    return <section className="mx-auto max-w-[1440px] px-6 py-7"><p className="rounded-md border border-red-300/50 p-4 text-red-100">TraceForge API is unavailable.</p></section>;
+    return <section className="mx-auto max-w-[1440px] px-6 py-7"><p className="rounded-md border border-forge-highlight/70 p-4 text-forge-highlight">TraceForge API is unavailable.</p></section>;
   }
 }
