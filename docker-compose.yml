@@ -63,6 +63,19 @@ services:
       traceforge-backend:
         condition: service_healthy
 
+  traceforge-web:
+    build: ./apps/web
+
+    environment:
+      TRACEFORGE_API_URL: http://traceforge-backend:8000
+
+    depends_on:
+      traceforge-backend:
+        condition: service_healthy
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
   otel-collector:
     image: otel/opentelemetry-collector:0.160.0
 

@@ -104,9 +104,17 @@ def test_latency_contributor_scenario_creates_a_finding(monkeypatch):
     )
 
     assert finding["structured_data"]["service"] == "debug-payment"
-    assert finding["structured_data"]["contribution_ns"] == 2_300_000_000
-    assert finding["structured_data"]["critical_path_duration_ns"] == 3_000_000_000
-    assert finding["structured_data"]["canonical_duration_ns"] == 2_300_000_000
+    assert finding["structured_data"]["contribution_ns"] == "2300000000"
+    assert finding["structured_data"]["critical_path_duration_ns"] == "3000000000"
+    assert finding["structured_data"]["canonical_duration_ns"] == "2300000000"
+    contribution = next(
+        evidence for evidence in finding["evidence"] if evidence["type"] == "CRITICAL_PATH_CONTRIBUTION"
+    )
+    segments = next(
+        evidence for evidence in finding["evidence"] if evidence["type"] == "CRITICAL_PATH_SEGMENTS"
+    )
+    assert contribution["structured_data"]["contribution_ns"] == "2300000000"
+    assert segments["structured_data"]["segments"][0]["contribution_ns"] == "2300000000"
     assert finding["related_span_ids"] == ["0000000000000002"]
     assert next(
         result

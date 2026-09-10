@@ -100,17 +100,28 @@ def test_discovers_service_without_namespace_duplicates():
 
 
 def test_lists_and_retrieves_trace():
-    send(export_request())
+    request = export_request()
+    event = request.resource_spans[0].scope_spans[0].spans[0].events.add()
+    event.name = "exception"
+    event.time_unix_nano = 150
+    send(request)
 
-    traces_response = client.get("/api/v1/traces")
-    detail_response = client.get("/api/v1/traces/0123456789abcdef0123456789abcdef")
+    summary = client.get("/api/v1/traces").json()["items"][0]
+    detail = client.get("/api/v1/traces/0123456789abcdef0123456789abcdef").json()
 
-    assert traces_response.status_code == 200
-    assert traces_response.json()["items"][0]["span_count"] == 1
-    assert detail_response.status_code == 200
-    assert detail_response.json()["spans"][0]["duration_ns"] == 150
-    assert detail_response.json()["spans"][0]["service"]["name"] == "orders"
-    assert detail_response.json()["trace"]["completeness_state"] == "PROCESSING"
+    assert summary["span_count"] == 1
+    assert {key: type(summary[key]) for key in ("start_time_unix_ns", "end_time_unix_ns", "duration_ns")} == {
+        "start_time_unix_ns": str, "end_time_unix_ns": str, "duration_ns": str,
+    }
+    assert {key: type(detail["trace"][key]) for key in ("start_time_unix_ns", "end_time_unix_ns", "duration_ns")} == {
+        "start_time_unix_ns": str, "end_time_unix_ns": str, "duration_ns": str,
+    }
+    assert detail["spans"][0]["duration_ns"] == "150"
+    assert detail["spans"][0]["start_time_unix_ns"] == "100"
+    assert detail["spans"][0]["end_time_unix_ns"] == "250"
+    assert detail["spans"][0]["events"][0]["timestamp_unix_ns"] == "150"
+    assert detail["spans"][0]["service"]["name"] == "orders"
+    assert detail["trace"]["completeness_state"] == "PROCESSING"
 
 
 def test_returns_404_for_unknown_trace():

@@ -75,10 +75,10 @@ def test_multihop_and_siblings_create_only_direct_edges():
     gateway = client.get(f"/api/v1/services/{service_id('gateway')}/dependencies").json()
     orders = client.get(f"/api/v1/services/{service_id('orders')}/dependencies").json()
 
-    assert [(row["target_service"]["name"], row["observed_at"] if "observed_at" in row else row["first_seen_at"]) for row in gateway["outgoing"]] == [("orders", 10)]
+    assert [(row["target_service"]["name"], row["first_seen_at"]) for row in gateway["outgoing"]] == [("orders", "10")]
     assert [(row["target_service"]["name"], row["first_seen_at"]) for row in orders["outgoing"]] == [
-        ("inventory", 20),
-        ("payment", 30),
+        ("inventory", "20"),
+        ("payment", "30"),
     ]
     assert not gateway["incoming"]
 
@@ -136,8 +136,8 @@ def test_multiple_traces_aggregate_and_late_revision_replaces_observations():
     response = client.get(f"/api/v1/services/{service_id('orders')}/dependencies").json()
     dependency = response["outgoing"][0]
     assert dependency["observation_count"] == 3
-    assert dependency["first_seen_at"] == 100
-    assert dependency["last_seen_at"] == 300
+    assert dependency["first_seen_at"] == "100"
+    assert dependency["last_seen_at"] == "300"
 
     trace_id = trace_ids[0]
     send(request(trace_id, [("inventory", 3, 1, 50, 250)]))
@@ -146,9 +146,9 @@ def test_multiple_traces_aggregate_and_late_revision_replaces_observations():
     response = client.get(f"/api/v1/services/{service_id('orders')}/dependencies").json()
     dependencies = {row["target_service"]["name"]: row for row in response["outgoing"]}
     assert dependencies["payment"]["observation_count"] == 3
-    assert dependencies["payment"]["first_seen_at"] == 100
+    assert dependencies["payment"]["first_seen_at"] == "100"
     assert dependencies["inventory"]["observation_count"] == 1
-    assert dependencies["inventory"]["first_seen_at"] == 50
+    assert dependencies["inventory"]["first_seen_at"] == "50"
 
     with engine.connect() as connection:
         rows = connection.execute(

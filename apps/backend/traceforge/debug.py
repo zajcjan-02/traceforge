@@ -361,8 +361,10 @@ def critical_path(trace_id: str):
                 "parent_span_id": (
                     bytes.fromhex(span["parent_span_id"]) if span["parent_span_id"] else None
                 ),
-                "start_time_unix_ns": span["start_time_unix_ns"],
-                "end_time_unix_ns": span["end_time_unix_ns"],
+                "start_time_unix_ns": int(span["start_time_unix_ns"]),
+                "end_time_unix_ns": int(span["end_time_unix_ns"])
+                if span["end_time_unix_ns"] is not None
+                else None,
             }
             for span in detail["spans"]
         ],
