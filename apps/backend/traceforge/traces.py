@@ -1,6 +1,12 @@
-from fastapi import APIRouter
+import base64
+import json
+from binascii import Error as BinasciiError
+from datetime import datetime
+from uuid import UUID
+
+from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 
 from traceforge.database import engine
 from traceforge.models import (
@@ -87,6 +93,46 @@ def list_traces():
             for row in rows
         ]
     }
+
+
+@router.get("/findings")
+def list_findings(
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
+    type: str | None = None,
+    severity: str | None = None,
+    confidence: str | None = None,
+):
+    boundary = None
+    if cursor:
+        try:
+            boundary = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+            if not isinstance(boundary, list) or len(boundary) != 2:
+                raise ValueError
+            boundary = (datetime.fromisoformat(boundary[0]), UUID(boundary[1]))
+        except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, BinasciiError):
+            return JSONResponse(status_code=400, content={"error": {"code": "INVALID_REQUEST", "message": "Invalid findings cursor."}})
+    statement = select(findings, traces.c.current_analysis_run_id).join(
+        traces, and_(findings.c.trace_id == traces.c.trace_id, findings.c.analysis_run_id == traces.c.current_analysis_run_id, findings.c.trace_revision == traces.c.revision)
+    )
+    if type:
+        statement = statement.where(findings.c.finding_type == type)
+    if severity:
+        statement = statement.where(findings.c.severity == severity)
+    if confidence:
+        statement = statement.where(findings.c.confidence == confidence)
+    if boundary:
+        created_at, finding_id = boundary
+        statement = statement.where(or_(findings.c.created_at < created_at, and_(findings.c.created_at == created_at, findings.c.finding_id < finding_id)))
+    statement = statement.order_by(findings.c.created_at.desc(), findings.c.finding_id.desc()).limit(limit + 1)
+    with engine.connect() as connection:
+        rows = connection.execute(statement).mappings().all()
+    next_cursor = None
+    if len(rows) > limit:
+        row = rows[limit - 1]
+        next_cursor = base64.urlsafe_b64encode(json.dumps([row["created_at"].isoformat(), str(row["finding_id"])]).encode()).decode()
+        rows = rows[:limit]
+    return {"items": [{"finding_id": str(row["finding_id"]), "trace_id": row["trace_id"].hex(), "type": row["finding_type"], "severity": row["severity"], "confidence": row["confidence"], "title": row["title"], "summary": row["summary"], "created_at": row["created_at"].isoformat(), "service": row["structured_data"].get("service") or row["structured_data"].get("source_service")} for row in rows], "next_cursor": next_cursor}
 
 
 @router.get("/services/{service_id}/dependencies")

@@ -69,6 +69,17 @@ describe("TraceView", () => {
     expect(screen.getByText(/"exception.type": "Timeout"/)).toBeInTheDocument();
   });
 
+  it("selects a current deep-linked finding and ignores unknown finding IDs", () => {
+    const { unmount } = render(<TraceView detail={detail()} initialFindingId="finding" />);
+    expect(screen.getByTestId("span-row-child")).toHaveClass("highlighted");
+    expect(screen.getByTestId("span-row-concurrent")).toHaveClass("highlighted");
+
+    unmount();
+    render(<TraceView detail={detail()} initialFindingId="stale-finding" />);
+    expect(screen.getByTestId("span-row-child")).not.toHaveClass("highlighted");
+    expect(screen.getByTestId("span-row-concurrent")).not.toHaveClass("highlighted");
+  });
+
   it("renders detector-specific evidence and keeps unknown findings usable", () => {
     const value = detail();
     value.analysis.current_run!.findings = [

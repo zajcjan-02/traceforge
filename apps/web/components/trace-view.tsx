@@ -127,8 +127,8 @@ function RawEvidence({ finding }: { finding: Finding }) {
   </details>;
 }
 
-export function TraceView({ detail }: { detail: TraceDetail }) {
-  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(null);
+export function TraceView({ detail, initialFindingId }: { detail: TraceDetail; initialFindingId?: string }) {
+  const [selectedFindingId, setSelectedFindingId] = useState<string | null>(initialFindingId ?? null);
   const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null);
   const rows = useMemo(() => rowsFor(detail.spans), [detail.spans]);
   const findings = detail.analysis.current_run?.findings ?? [];

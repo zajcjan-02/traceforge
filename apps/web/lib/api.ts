@@ -30,6 +30,8 @@ export type Dependency = {
   last_seen_at: string;
 };
 
+export type FindingSummary = { finding_id: string; trace_id: string; type: string; severity: string; confidence: string; title: string; summary: string; created_at: string; service: string | null };
+
 export type Span = {
   span_id: string;
   parent_span_id: string | null;
@@ -126,4 +128,8 @@ export async function getService(serviceId: string) {
 
 export async function getServiceDependencies(serviceId: string) {
   return request<{ outgoing: Dependency[]; incoming: Dependency[] }>(`/api/v1/services/${serviceId}/dependencies`);
+}
+
+export async function getFindings(params: URLSearchParams) {
+  return request<{ items: FindingSummary[]; next_cursor: string | null }>(`/api/v1/findings?${params}`);
 }
