@@ -1,7 +1,7 @@
 import base64
 import json
 from binascii import Error as BinasciiError
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Query
@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, or_, select
 
 from traceforge.database import engine
 from traceforge.models import (
+    analysis_jobs,
     analysis_runs,
     detector_results,
     finding_evidence,
@@ -133,6 +134,59 @@ def list_findings(
         next_cursor = base64.urlsafe_b64encode(json.dumps([row["created_at"].isoformat(), str(row["finding_id"])]).encode()).decode()
         rows = rows[:limit]
     return {"items": [{"finding_id": str(row["finding_id"]), "trace_id": row["trace_id"].hex(), "type": row["finding_type"], "severity": row["severity"], "confidence": row["confidence"], "title": row["title"], "summary": row["summary"], "created_at": row["created_at"].isoformat(), "service": row["structured_data"].get("service") or row["structured_data"].get("source_service")} for row in rows], "next_cursor": next_cursor}
+
+
+@router.get("/system/health")
+def system_health():
+    try:
+        with engine.connect() as connection:
+            now = connection.execute(select(func.now())).scalar_one()
+            last_received_at = connection.execute(
+                select(func.max(traces.c.last_received_at))
+            ).scalar_one()
+            pending_jobs = connection.execute(
+                select(func.count()).select_from(analysis_jobs).where(
+                    analysis_jobs.c.state == "PENDING"
+                )
+            ).scalar_one()
+            running_jobs = connection.execute(
+                select(func.count()).select_from(analysis_jobs).where(
+                    analysis_jobs.c.state == "RUNNING"
+                )
+            ).scalar_one()
+            failed_jobs_recent = connection.execute(
+                select(func.count()).select_from(analysis_jobs).where(
+                    analysis_jobs.c.state == "FAILED",
+                    analysis_jobs.c.completed_at >= now - timedelta(minutes=15),
+                )
+            ).scalar_one()
+            oldest_pending_at = connection.execute(
+                select(func.min(analysis_jobs.c.available_at)).where(
+                    analysis_jobs.c.state == "PENDING"
+                )
+            ).scalar_one()
+    except Exception:
+        return {
+            "overall_status": "UNAVAILABLE",
+            "backend": {"status": "HEALTHY"},
+            "storage": {"status": "UNAVAILABLE"},
+            "ingestion": {"status": "WAITING_FOR_TELEMETRY", "last_telemetry_received_at": None},
+            "analysis": {"status": "HEALTHY", "pending_jobs": 0, "running_jobs": 0, "failed_jobs_recent": 0, "oldest_pending_job_age_ms": None},
+        }
+
+    oldest_pending_job_age_ms = None
+    if oldest_pending_at is not None:
+        oldest_pending_job_age_ms = max(0, int((now - oldest_pending_at).total_seconds() * 1000))
+    analysis_status = "DEGRADED" if failed_jobs_recent or oldest_pending_job_age_ms is not None and oldest_pending_job_age_ms > 30_000 else "HEALTHY"
+    ingestion_status = "HEALTHY" if last_received_at else "WAITING_FOR_TELEMETRY"
+    overall_status = "DEGRADED" if analysis_status == "DEGRADED" else ingestion_status
+    return {
+        "overall_status": overall_status,
+        "backend": {"status": "HEALTHY"},
+        "storage": {"status": "HEALTHY"},
+        "ingestion": {"status": ingestion_status, "last_telemetry_received_at": last_received_at.isoformat() if last_received_at else None},
+        "analysis": {"status": analysis_status, "pending_jobs": pending_jobs, "running_jobs": running_jobs, "failed_jobs_recent": failed_jobs_recent, "oldest_pending_job_age_ms": oldest_pending_job_age_ms},
+    }
 
 
 @router.get("/services/{service_id}/dependencies")

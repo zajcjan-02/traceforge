@@ -32,6 +32,14 @@ export type Dependency = {
 
 export type FindingSummary = { finding_id: string; trace_id: string; type: string; severity: string; confidence: string; title: string; summary: string; created_at: string; service: string | null };
 
+export type SystemHealth = {
+  overall_status: string;
+  backend: { status: string };
+  storage: { status: string };
+  ingestion: { status: string; last_telemetry_received_at: string | null };
+  analysis: { status: string; pending_jobs: number; running_jobs: number; failed_jobs_recent: number; oldest_pending_job_age_ms: number | null };
+};
+
 export type Span = {
   span_id: string;
   parent_span_id: string | null;
@@ -132,4 +140,8 @@ export async function getServiceDependencies(serviceId: string) {
 
 export async function getFindings(params: URLSearchParams) {
   return request<{ items: FindingSummary[]; next_cursor: string | null }>(`/api/v1/findings?${params}`);
+}
+
+export async function getSystemHealth() {
+  return request<SystemHealth>("/api/v1/system/health");
 }
