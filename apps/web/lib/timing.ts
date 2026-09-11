@@ -22,6 +22,12 @@ export function formatTimestamp(value: string | null) {
   }
 }
 
+export function formatDateTime(value: string | null) {
+  if (value === null) return "Unavailable";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toISOString().replace("T", " ").replace("Z", " UTC");
+}
+
 export function waterfallPosition(trace: TraceSummary, span: Span) {
   if (trace.duration_ns === null || span.end_time_unix_ns === null) return null;
   try {

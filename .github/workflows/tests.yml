@@ -50,3 +50,6 @@ jobs:
       - name: Run frontend tests
         working-directory: apps/web
         run: npm test
+      - name: Build frontend
+        working-directory: apps/web
+        run: npm run build

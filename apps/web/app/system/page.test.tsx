@@ -14,7 +14,7 @@ describe("SystemPage", () => {
     getSystemHealth.mockResolvedValue({ overall_status: "WAITING_FOR_TELEMETRY", backend: { status: "HEALTHY" }, storage: { status: "HEALTHY" }, ingestion: { status: "WAITING_FOR_TELEMETRY", last_telemetry_received_at: null }, analysis: { status: "HEALTHY", pending_jobs: 0, running_jobs: 0, failed_jobs_recent: 0, oldest_pending_job_age_ms: null } });
     render(await SystemPage());
 
-    expect(screen.getByText("WAITING_FOR_TELEMETRY")).toBeInTheDocument();
+    expect(screen.getAllByText("WAITING_FOR_TELEMETRY")).toHaveLength(2);
     expect(screen.getByText("PostgreSQL connectivity")).toBeInTheDocument();
     expect(screen.getByText("Oldest pending age")).toBeInTheDocument();
   });

@@ -1,85 +1,80 @@
 # TraceForge
 
-TraceForge is a self-hosted developer observability tool focused on **automated, evidence-backed analysis of distributed traces**.
+TraceForge is a self-hosted developer tool that ingests OpenTelemetry traces,
+reconstructs observed execution, and produces deterministic findings backed by
+the spans and events that support them.
 
-The project aims to reduce the amount of telemetry developers must interpret manually when debugging distributed applications.
+## Status
 
-Instead of only showing what happened during a request, TraceForge is designed to help answer questions such as:
+TraceForge is an early v0.1 developer and staging tool. It supports local
+Docker Compose deployment, OTLP trace ingestion, PostgreSQL persistence,
+lifecycle and analysis processing, and a Next.js investigation UI.
 
-* Which operation contributed most to request latency?
-* Where did an error most likely originate?
-* Did a service perform suspiciously repeated database operations?
-* Which services participated in the request?
-* Which execution behaviour deserves investigation first?
+## Current capabilities
 
-## Project Status
+- OTLP/gRPC and OTLP/HTTP trace ingestion through the OpenTelemetry Collector.
+- Trace waterfall and span/event inspection.
+- Deterministic findings for repeated database operations, latency
+  contributors, likely error origins, and repeated downstream operations.
+- Observed direct service dependencies, global findings, and system status.
+- Deterministic local debug scenarios at `/debug`.
 
-TraceForge is currently in **early development**.
-
-The product, architecture, data flow, storage model, analysis engine, and API contracts were designed before implementation began.
-
-The full design specification is available at:
-
-```text
-docs/DESIGN.md
-```
-
-## Planned v0.1
-
-The initial version is focused on:
-
-* OpenTelemetry trace ingestion;
-* distributed trace reconstruction;
-* trace inspection and waterfall visualization;
-* observed service dependency discovery;
-* deterministic diagnostic analysis;
-* critical-path and latency analysis;
-* repeated database-operation detection;
-* error-origin and propagation analysis;
-* structured findings with supporting telemetry evidence.
-
-TraceForge v0.1 is intended primarily for local development, shared development environments, and small staging environments.
-
-## Planned Architecture
+## Architecture
 
 ```text
-Instrumented Application
-        ↓
-OpenTelemetry Collector
-        ↓
-TraceForge Backend
-        ↓
-PostgreSQL
-        ↓
-Analysis Worker
-        ↓
-TraceForge API
-        ↓
-Web UI
+Instrumented application → OpenTelemetry Collector → TraceForge backend
+                                                    ├→ PostgreSQL
+                                                    └→ analysis worker
+Next.js UI → TraceForge API
 ```
 
-The initial implementation will use a modular backend architecture with asynchronous diagnostic analysis and PostgreSQL-backed persistence and job scheduling.
+The design source of truth is [`docs/design/`](docs/design/), especially the
+[architecture](docs/design/09-system-architecture.md),
+[analysis engine](docs/design/12-analysis-engine-design.md), and
+[API contracts](docs/design/13-core-api-contracts.md).
 
-## Technology Direction
+## Quick start
 
-Planned technologies include:
+Prerequisite: Docker Desktop with Docker Compose.
 
-* **Python / FastAPI** — backend and analysis engine
-* **PostgreSQL** — telemetry and analysis persistence
-* **OpenTelemetry** — telemetry standard and ingestion
-* **Next.js / TypeScript** — web interface
-* **Docker Compose** — initial deployment environment
+```sh
+docker compose up --build
+```
 
-Technology choices may evolve where implementation evidence justifies a change.
+- Product UI: `http://127.0.0.1:3000`
+- Backend health: `http://127.0.0.1:8000/health/ready`
+- Debug fixtures: `http://127.0.0.1:8000/debug`
+- OTLP/gRPC receiver: `127.0.0.1:4317`
+- OTLP/HTTP receiver: `http://127.0.0.1:4318`
 
-## Design Philosophy
+Generate a trace through the Collector:
 
-TraceForge follows one central principle:
+```sh
+telemetrygen traces --otlp-insecure --otlp-endpoint localhost:4317 --traces 1
+```
 
-> **Do not merely show developers more telemetry. Reduce the amount of telemetry they have to understand manually.**
+Use `/debug` for deterministic detector scenarios, then investigate generated
+traces, findings, services, and system status in the product UI.
 
-Diagnostic findings should be deterministic, reproducible, and linked directly to the telemetry that supports them.
+## Configuration
 
-AI-generated explanations may be explored later, but core diagnosis will not depend on a language model.
+Docker Compose provides working local defaults. The backend and worker use a
+PostgreSQL `DATABASE_URL`; Compose also configures lifecycle timing, worker
+polling/lease/retry settings, and detector repetition thresholds.
 
+The UI uses `TRACEFORGE_API_URL`. `TRACEFORGE_DEBUG_UI=true` enables the
+local debug fixture.
 
+## Tests
+
+```sh
+cd apps/backend && uv run --extra dev pytest
+cd apps/web && npm test && npm run build
+```
+
+## Current limitations
+
+- No authentication, retention, alerting, or production deployment workflow.
+- No live updates, historical findings browser, or infrastructure topology.
+- Service dependencies are observed direct cross-service relationships, not
+  configured or transitive topology.

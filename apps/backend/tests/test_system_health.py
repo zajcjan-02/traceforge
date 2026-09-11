@@ -52,9 +52,9 @@ def test_system_health_reports_telemetry_and_analysis_queue():
         connection.execute(
             analysis_jobs.insert(),
             [
-                {"trace_id": trace_id, "trace_revision": 1, "state": "PENDING", "available_at": now - timedelta(seconds=31)},
-                {"trace_id": trace_id, "trace_revision": 2, "state": "RUNNING"},
-                {"trace_id": trace_id, "trace_revision": 3, "state": "FAILED", "completed_at": now},
+                {"trace_id": trace_id, "trace_revision": 1, "state": "PENDING", "available_at": now - timedelta(seconds=31), "completed_at": None},
+                {"trace_id": trace_id, "trace_revision": 2, "state": "RUNNING", "available_at": now, "completed_at": None},
+                {"trace_id": trace_id, "trace_revision": 3, "state": "FAILED", "available_at": now, "completed_at": now},
             ],
         )
 
