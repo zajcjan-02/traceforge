@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+
+    environment:
+      POSTGRES_DB: traceforge
+      POSTGRES_USER: traceforge
+      POSTGRES_PASSWORD: traceforge
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U traceforge -d traceforge"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+    ports:
+      - "127.0.0.1:5433:5432"
+
+    volumes:
+      - traceforge-postgres:/var/lib/postgresql/data
+
+  traceforge-backend:
+    build: ./apps/backend
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://traceforge:traceforge@postgres:5432/traceforge
+      TRACE_QUIET_PERIOD_SECONDS: "2"
+      TRACE_LIFECYCLE_SWEEP_INTERVAL_SECONDS: "1"
+      TRACEFORGE_DEBUG_UI: "true"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready')
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  traceforge-worker:
+    build: ./apps/backend
+
+    command: python -m traceforge.worker
+
+    environment:
+      DATABASE_URL: postgresql+psycopg://traceforge:traceforge@postgres:5432/traceforge
+      TRACE_ANALYSIS_POLL_SECONDS: "1"
+      TRACE_ANALYSIS_LEASE_SECONDS: "30"
+      TRACE_ANALYSIS_MAX_ATTEMPTS: "3"
+      TRACE_REPEATED_DATABASE_MIN_COUNT: "5"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      traceforge-backend:
+        condition: service_healthy
+
+  traceforge-web:
+    build: ./apps/web
+
+    environment:
+      TRACEFORGE_API_URL: http://traceforge-backend:8000
+
+    depends_on:
+      traceforge-backend:
+        condition: service_healthy
+
+    ports:
+      - "127.0.0.1:3000:3000"
+
+  otel-collector:
+    image: otel/opentelemetry-collector:0.160.0
+
+    command:
+      - --config=/etc/otelcol/config.yaml
+
+    volumes:
+      - ./deploy/otel/collector-config.yaml:/etc/otelcol/config.yaml:ro
+
+    ports:
+      - "127.0.0.1:4317:4317"
+      - "127.0.0.1:4318:4318"
+
+volumes:
+  traceforge-postgres:

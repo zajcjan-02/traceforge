@@ -251,7 +251,7 @@ traces (
     status                  TEXT NOT NULL,
 
     completeness_state      TEXT NOT NULL,
-    analysis_state          TEXT NOT NULL,
+    analysis_state          TEXT NULL,
 
     current_analysis_run_id UUID NULL,
 
@@ -261,6 +261,8 @@ traces (
     updated_at              TIMESTAMPTZ NOT NULL
 )
 ```
+
+`analysis_state` is `NULL` until a finalized trace revision is scheduled for analysis.
 
 The exact types for enums may use PostgreSQL enums, text with constraints, or application-defined typed values.
 
@@ -597,7 +599,7 @@ span_events (
     event_index     INTEGER NOT NULL,
 
     name            TEXT NOT NULL,
-    timestamp       TIMESTAMPTZ NOT NULL,
+    timestamp_unix_ns BIGINT NULL,
 
     attributes      JSONB NOT NULL
 )
@@ -1346,7 +1348,7 @@ service_dependency_observations (
 
     trace_revision       BIGINT NOT NULL,
 
-    observed_at          TIMESTAMPTZ NOT NULL,
+    observed_at          BIGINT NOT NULL,
 
     PRIMARY KEY(
         trace_id,
@@ -1357,6 +1359,9 @@ service_dependency_observations (
 ```
 
 The current row can be updated when the trace revision changes.
+
+In the implemented v0.1 schema, `observed_at` is the earliest child span start
+time in nanoseconds for that trace-level edge, not the finalization timestamp.
 
 ---
 

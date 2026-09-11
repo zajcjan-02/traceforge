@@ -754,17 +754,32 @@ The exact default will be determined experimentally.
 
 ## 12.27 Critical Path Confidence
 
-Critical-path confidence may be reduced by:
+## 12.27.1 Implemented v0.1 Wall-Clock Attribution Path
 
-```text
-missing parents
-multiple roots
-invalid timestamps
-significant clock skew
-large orphaned subtrees
-```
+TraceForge v0.1 implements a deterministic wall-clock critical-path
+approximation. It attributes every instant in the single valid root span to
+either that parent span's exclusive execution or one active direct child.
 
-The algorithm may still produce a useful estimate, but findings depending on it should inherit appropriate uncertainty.
+For overlapping sibling intervals, the active child with the latest effective
+end time is selected; equal end times use the stable span ID ordering. The
+selected child is then evaluated recursively. This can switch attribution
+between concurrent sibling branches as their observed intervals change.
+
+This is an attribution rule, not proof of a causal dependency between sibling
+operations. Parent/child links are observed telemetry structure; they are used
+as a pragmatic nesting model, while causal relationships in arbitrary
+asynchronous systems may be unavailable.
+
+Intervals are half-open and child intervals are clipped only in the derived
+calculation. The result is unavailable for incomplete traces, invalid timing,
+missing parents, root ambiguity, cycles, or children that do not overlap their
+parent. Available results have ordered, non-overlapping segments whose
+contributions exactly cover the root interval.
+
+The v0.1 implementation is conservative: an unavailable critical path produces
+no latency attribution. Missing parents, root ambiguity, invalid timestamps,
+cycles, incomplete traces, and non-overlapping parent/child timing therefore
+produce `SKIPPED_INSUFFICIENT_DATA` for latency analysis.
 
 ---
 
@@ -827,28 +842,35 @@ A finding should not be generated for every span on the critical path.
 
 A configurable threshold should determine significance.
 
-For example, a span may qualify when:
+In v0.1, a span qualifies only when both are true:
 
 ```text
-contribution >= absolute_threshold
+contribution >= TRACE_LATENCY_MIN_CONTRIBUTION_NS
 ```
 
 and/or:
 
 ```text
-contribution / trace_duration >= relative_threshold
+contribution / critical_path_duration >= TRACE_LATENCY_MIN_CONTRIBUTION_FRACTION
 ```
 
-Illustrative values:
+Defaults are:
 
 ```text
 absolute >= 100 ms
 relative >= 25%
 ```
 
-These values are NOT yet final.
+```text
+TRACE_LATENCY_MIN_CONTRIBUTION_NS = 100000000 (100 ms)
+TRACE_LATENCY_MIN_CONTRIBUTION_FRACTION = 0.25
+```
 
-They should be validated using demo traces.
+Threshold comparisons are inclusive. Severity is `HIGH` at contribution
+fractions of 0.50 or greater and `MEDIUM` otherwise. An available v0.1
+critical path yields `HIGH` confidence; unavailable paths yield no finding.
+Finding evidence records both the canonical span duration and the sum of the
+critical-path intervals attributed to that span.
 
 ---
 
@@ -1008,7 +1030,7 @@ Two equivalent operations are technically repeated, but a finding for every pair
 
 The detector therefore requires a configurable minimum count.
 
-Illustrative initial threshold:
+Initial default threshold:
 
 ```text
 count >= 5
@@ -1144,6 +1166,27 @@ is preferable to trying to infer a template from:
 
 Heuristic path normalization should be used only when reliable semantic attributes are unavailable.
 
+### Implemented v0.1 Repeated Downstream Rules
+
+`RepeatedDownstreamOperationDetector` considers only `CLIENT` spans. HTTP
+identity requires `http.request.method`, `url.template`, and `server.address`,
+with optional `server.port`; it does not infer templates from `url.full` or
+`url.path`. Its grouping key is source service, address/port, `HTTP`, and
+`METHOD url.template`.
+
+RPC identity requires `rpc.system.name`, `rpc.method`, and `server.address`,
+with optional `server.port`. Its grouping key is source service, address/port,
+`RPC:system`, and `rpc.method`. Legacy attributes are not the v0.1 contract.
+
+Groups require at least five calls by default. Calls are sorted by start time
+and span ID; a call is sequential when it starts at or after the preceding
+call ends. More than half sequential is `MEDIUM` severity; otherwise severity
+is `LOW`. Complete traces with stable identities are `HIGH` confidence and
+incomplete traces are `MEDIUM`. Missing identity produces no finding.
+
+This detector reports repeated downstream operations only. It does not infer
+or label retries.
+
 ---
 
 ## 12.44 Retry Detection
@@ -1215,6 +1258,22 @@ It does NOT claim to identify the ultimate source-code root cause.
 Its output is approximately:
 
 > Which observed error appears to precede and explain subsequent propagated failures?
+
+### Implemented v0.1 Rules
+
+TraceForge recognizes `exception` span events, `status = ERROR`, HTTP 5xx from
+`http.response.status_code` or `http.status_code`, and gRPC failures from
+`rpc.system.name = grpc` with `rpc.response.status_code` other than `OK`.
+Legacy integer `rpc.grpc.status_code` remains a fallback. When a recognized
+failure has `error.type`, that value is preserved as its classification.
+
+An origin must occur strictly before at least one errored ancestor in an intact
+parent chain. Equal timestamps, earlier ancestor errors, missing chain links,
+or an earlier errored descendant make the candidate ineligible. Independent
+sibling branches are evaluated independently. A complete chain with concrete
+exception evidence and root reachability is `HIGH` confidence; other intact,
+ordered chains are `MEDIUM`. Severity is `HIGH` when propagation reaches the
+root request span and `MEDIUM` otherwise.
 
 ---
 
@@ -1437,22 +1496,20 @@ Example for repeated database operations:
 
 ```text
 HIGH
-- normalized operation reliable
-- count significantly above threshold
-- all spans same service
-- telemetry structurally complete
+- operation came from `db.query.summary`
+- trace is COMPLETE
 ```
 
 ```text
 MEDIUM
-- grouping reliable
-- trace incomplete or timing uncertain
+- raw `db.query.text` normalization was used and trace is COMPLETE
+- or `db.query.summary` was used and trace is INCOMPLETE
 ```
 
 ```text
 LOW
-- heuristic normalization used
-- structural gaps materially affect interpretation
+- raw `db.query.text` normalization was used
+- trace is INCOMPLETE
 ```
 
 ---

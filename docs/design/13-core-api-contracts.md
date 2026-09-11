@@ -946,6 +946,9 @@ ServiceDependency {
 
 If aggregate counts are not materialized, they may be derived from dependency observations.
 
+The initial endpoint returns directed incoming and outgoing service relationships
+with telemetry-derived first/last observation times.
+
 ---
 
 ## 13.37 Service Dependency Endpoint
@@ -1087,6 +1090,10 @@ Example:
   }
 }
 ```
+
+For v0.1, analysis is `DEGRADED` when an exhausted job failed in the previous
+15 minutes or the oldest pending job is older than 30 seconds. When no pending
+job exists, `oldest_pending_job_age_ms` is `null` rather than zero.
 
 ---
 
