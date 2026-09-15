@@ -93,6 +93,13 @@ polling/lease/retry settings, and detector repetition thresholds.
 The UI uses `TRACEFORGE_API_URL`. `TRACEFORGE_DEBUG_UI=true` enables the
 local debug fixture.
 
+## Retention
+
+TraceForge retains finalized traces for `TRACE_RETENTION_DAYS=7` by default.
+Eligibility is based on `last_received_at`, never application execution time.
+Set `TRACE_RETENTION_DAYS=0` to disable automatic cleanup. Inspect current
+storage and run one bounded cleanup batch from the System page.
+
 ## Tests
 
 ```sh
@@ -103,7 +110,7 @@ cd demo && pip install ".[dev]" && pytest
 
 ## Current limitations
 
-- No authentication, retention, alerting, or production deployment workflow.
+- No authentication, alerting, or production deployment workflow.
 - No live updates, historical findings browser, or infrastructure topology.
 - Service dependencies are observed direct cross-service relationships, not
   configured or transitive topology.

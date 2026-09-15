@@ -1097,7 +1097,20 @@ job exists, `oldest_pending_job_age_ms` is `null` rather than zero.
 
 ---
 
-## 13.42 Liveness and Readiness Endpoints
+## 13.42 Retention Resources
+
+```http
+GET /api/v1/system/retention
+POST /api/v1/system/retention/run
+```
+
+The status resource exposes whether automatic retention is enabled, its
+configured period, the calculated cutoff, stored trace count, and eligible
+trace count. The run resource performs the same single bounded sweep used by
+the background task and returns the deleted trace count. Neither resource
+accepts arbitrary deletion criteria.
+
+## 13.43 Liveness and Readiness Endpoints
 
 Container/orchestration health checks SHOULD remain separate from product system health.
 

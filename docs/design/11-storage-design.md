@@ -2049,13 +2049,16 @@ TraceForge v0.1 does not require enterprise retention management, but storage gr
 
 The architecture SHOULD support configurable trace retention.
 
-Example future/default configuration:
+Default configuration:
 
 ```text
-TRACE_RETENTION = 7 days
+TRACE_RETENTION_DAYS = 7
 ```
 
-The exact default is not yet fixed.
+`TRACE_RETENTION_DAYS=0` disables automatic cleanup. Negative values are
+invalid. Retention eligibility uses `last_received_at`, not observed execution
+timestamps. A null receipt timestamp has unknown age and is never eligible.
+Only finalized traces without active analysis jobs are eligible.
 
 ---
 
@@ -2100,6 +2103,11 @@ Finding
 However, cascade design should remain explicit and carefully reviewed.
 
 Accidental broad deletion from a telemetry database is unacceptable.
+
+The v0.1 schema uses explicit ordered deletion for trace-owned rows because it
+does not have a complete trace-rooted cascade graph. The retention transaction
+deletes finding relationships/evidence/findings, detector results, events,
+spans, trace-service and dependency rows, analysis jobs/runs, then the trace.
 
 ---
 

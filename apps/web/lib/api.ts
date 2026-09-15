@@ -40,6 +40,14 @@ export type SystemHealth = {
   analysis: { status: string; pending_jobs: number; running_jobs: number; failed_jobs_recent: number; oldest_pending_job_age_ms: number | null };
 };
 
+export type RetentionStatus = {
+  enabled: boolean;
+  retention_days: number;
+  cutoff: string | null;
+  eligible_trace_count: number;
+  stored_trace_count: number;
+};
+
 export type Span = {
   span_id: string;
   parent_span_id: string | null;
@@ -144,4 +152,8 @@ export async function getFindings(params: URLSearchParams) {
 
 export async function getSystemHealth() {
   return request<SystemHealth>("/api/v1/system/health");
+}
+
+export async function getRetentionStatus() {
+  return request<RetentionStatus>("/api/v1/system/retention");
 }

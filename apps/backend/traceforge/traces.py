@@ -23,6 +23,7 @@ from traceforge.models import (
     trace_services,
     traces,
 )
+from traceforge.retention import retention_status, sweep_retention
 
 router = APIRouter(prefix="/api/v1")
 
@@ -187,6 +188,16 @@ def system_health():
         "ingestion": {"status": ingestion_status, "last_telemetry_received_at": last_received_at.isoformat() if last_received_at else None},
         "analysis": {"status": analysis_status, "pending_jobs": pending_jobs, "running_jobs": running_jobs, "failed_jobs_recent": failed_jobs_recent, "oldest_pending_job_age_ms": oldest_pending_job_age_ms},
     }
+
+
+@router.get("/system/retention")
+def system_retention():
+    return retention_status()
+
+
+@router.post("/system/retention/run")
+def run_system_retention():
+    return {"deleted_trace_count": sweep_retention(), "retention": retention_status()}
 
 
 @router.get("/services/{service_id}/dependencies")

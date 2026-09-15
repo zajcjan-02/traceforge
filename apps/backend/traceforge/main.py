@@ -8,16 +8,22 @@ from traceforge.database import database_ready
 from traceforge.debug import router as debug_router
 from traceforge.ingestion.otlp import router as otlp_router
 from traceforge.lifecycle import run_lifecycle_sweep
+from traceforge.retention import run_retention_sweep, validate_retention_config
 from traceforge.traces import router as traces_router
 
 
 @asynccontextmanager
 async def lifespan(app):
-    task = asyncio.create_task(run_lifecycle_sweep())
+    validate_retention_config()
+    lifecycle_task = asyncio.create_task(run_lifecycle_sweep())
+    retention_task = asyncio.create_task(run_retention_sweep())
     yield
-    task.cancel()
+    lifecycle_task.cancel()
+    retention_task.cancel()
     with suppress(asyncio.CancelledError):
-        await task
+        await lifecycle_task
+    with suppress(asyncio.CancelledError):
+        await retention_task
 
 
 app = FastAPI(lifespan=lifespan)

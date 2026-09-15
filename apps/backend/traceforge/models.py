@@ -30,7 +30,7 @@ traces = Table(
     Column("analysis_state", String),
     Column("current_analysis_run_id", UUID(as_uuid=True)),
     Column("first_received_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
-    Column("last_received_at", DateTime(timezone=True), nullable=False, server_default=func.now()),
+    Column("last_received_at", DateTime(timezone=True), server_default=func.now()),
     Column("completion_deadline", DateTime(timezone=True)),
 )
 
