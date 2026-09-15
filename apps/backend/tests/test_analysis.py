@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -54,7 +54,7 @@ def finalize(trace_id):
         connection.execute(
             update(traces)
             .where(traces.c.trace_id == bytes.fromhex(trace_id))
-            .values(completion_deadline=datetime.now(timezone.utc) - timedelta(seconds=1))
+            .values(completion_deadline=func.now() - timedelta(seconds=1))
         )
     evaluate_expired_traces()
 
@@ -123,7 +123,7 @@ def test_expired_lease_is_reclaimed_with_a_new_claim_token():
         connection.execute(
             update(analysis_jobs)
             .where(analysis_jobs.c.job_id == first_job["job_id"])
-            .values(lease_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+            .values(lease_expires_at=func.now() - timedelta(seconds=1))
         )
     second_job = claim_job()
 
@@ -161,7 +161,7 @@ def test_exhausted_expired_job_marks_current_trace_failed(monkeypatch):
         connection.execute(
             update(analysis_jobs)
             .where(analysis_jobs.c.job_id == job["job_id"])
-            .values(lease_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+            .values(lease_expires_at=func.now() - timedelta(seconds=1))
         )
 
     assert claim_job() is None

@@ -53,3 +53,17 @@ jobs:
       - name: Build frontend
         working-directory: apps/web
         run: npm run build
+
+  demo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install demo dependencies
+        working-directory: demo
+        run: pip install ".[dev]"
+      - name: Run demo tests
+        working-directory: demo
+        run: pytest

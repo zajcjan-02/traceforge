@@ -1,7 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 
 from traceforge.database import engine
 from traceforge.lifecycle import evaluate_expired_traces
@@ -17,7 +17,7 @@ def finish(trace_id):
         connection.execute(
             update(traces)
             .where(traces.c.trace_id == bytes.fromhex(trace_id))
-            .values(completion_deadline=datetime.now(timezone.utc) - timedelta(seconds=1))
+            .values(completion_deadline=func.now() - timedelta(seconds=1))
         )
     evaluate_expired_traces()
     assert complete_job(claim_job())

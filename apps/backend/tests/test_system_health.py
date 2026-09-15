@@ -1,6 +1,7 @@
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
 from fastapi.testclient import TestClient
+from sqlalchemy import func
 
 from traceforge.database import engine
 from traceforge.main import app
@@ -47,15 +48,33 @@ def test_system_health_waits_for_first_telemetry():
 
 def test_system_health_reports_telemetry_and_analysis_queue():
     trace_id = add_trace()
-    now = datetime.now(timezone.utc)
     with engine.begin() as connection:
         connection.execute(
-            analysis_jobs.insert(),
-            [
-                {"trace_id": trace_id, "trace_revision": 1, "state": "PENDING", "available_at": now - timedelta(seconds=31), "completed_at": None},
-                {"trace_id": trace_id, "trace_revision": 2, "state": "RUNNING", "available_at": now, "completed_at": None},
-                {"trace_id": trace_id, "trace_revision": 3, "state": "FAILED", "available_at": now, "completed_at": now},
-            ],
+            analysis_jobs.insert().values(
+                trace_id=trace_id,
+                trace_revision=1,
+                state="PENDING",
+                available_at=func.now() - timedelta(seconds=31),
+                completed_at=None,
+            )
+        )
+        connection.execute(
+            analysis_jobs.insert().values(
+                trace_id=trace_id,
+                trace_revision=2,
+                state="RUNNING",
+                available_at=func.now(),
+                completed_at=None,
+            )
+        )
+        connection.execute(
+            analysis_jobs.insert().values(
+                trace_id=trace_id,
+                trace_revision=3,
+                state="FAILED",
+                available_at=func.now(),
+                completed_at=func.now(),
+            )
         )
 
     response = client.get("/api/v1/system/health")
