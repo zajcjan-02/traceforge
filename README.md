@@ -56,6 +56,34 @@ telemetrygen traces --otlp-insecure --otlp-endpoint localhost:4317 --traces 1
 Use `/debug` for deterministic detector scenarios, then investigate generated
 traces, findings, services, and system status in the product UI.
 
+## Demo application
+
+The independent, real OpenTelemetry demo proves an ordinary distributed app can
+flow through the Collector into TraceForge. Start it alongside the local stack:
+
+```sh
+docker compose --profile demo up --build
+```
+
+Call its gateway at `http://127.0.0.1:8010`:
+
+```sh
+curl http://127.0.0.1:8010/demo/normal
+curl http://127.0.0.1:8010/demo/repeated-db
+curl http://127.0.0.1:8010/demo/slow-payment
+curl http://127.0.0.1:8010/demo/error
+curl http://127.0.0.1:8010/demo/repeated-downstream
+curl http://127.0.0.1:8010/demo/concurrent
+```
+
+The scenarios respectively demonstrate a healthy request, repeated database
+operations, a latency contributor, propagated error telemetry, repeated
+downstream calls, and concurrent work. See [`demo/README.md`](demo/README.md)
+for the standard OpenTelemetry attributes added where automatic instrumentation
+cannot provide stable low-cardinality operation identity.
+
+Each demo request also writes a concise Markdown report to `demo/reports/`.
+
 ## Configuration
 
 Docker Compose provides working local defaults. The backend and worker use a
@@ -70,6 +98,7 @@ local debug fixture.
 ```sh
 cd apps/backend && uv run --extra dev pytest
 cd apps/web && npm test && npm run build
+cd demo && pip install ".[dev]" && pytest
 ```
 
 ## Current limitations
