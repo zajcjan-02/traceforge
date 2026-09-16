@@ -25,7 +25,7 @@ docker compose down -v --remove-orphans
 docker compose --profile demo up --build -d
 wait_for http://127.0.0.1:8000/health/live
 wait_for http://127.0.0.1:8000/health/ready
-curl --fail --silent http://127.0.0.1:8010/demo/normal >/dev/null
+wait_for http://127.0.0.1:8010/demo/normal
 curl --fail --silent http://127.0.0.1:8010/demo/repeated-db >/dev/null
 finding REPEATED_DATABASE_OPERATION
 
