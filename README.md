@@ -108,6 +108,15 @@ Eligibility is based on `last_received_at`, never application execution time.
 Set `TRACE_RETENTION_DAYS=0` to disable automatic cleanup. Inspect current
 storage and run one bounded cleanup batch from the System page.
 
+## Benchmarks
+
+The local OTLP benchmark tool measures export and confirmed persisted
+throughput, lifecycle/analysis timings, trace search/detail requests, and one
+bounded retention sweep. See [`bench/README.md`](bench/README.md) for setup and
+reproducible small, medium, and optional large profiles. Local measurements
+are recorded in [`docs/benchmarks/v0.1.md`](docs/benchmarks/v0.1.md), not
+treated as universal performance guarantees.
+
 ## Tests
 
 ```sh
