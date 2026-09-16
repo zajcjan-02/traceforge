@@ -11,6 +11,17 @@ export type TraceSummary = {
   service_count: number;
   completeness_state: string;
   analysis_state: string | null;
+  root_service?: { service_id: number; name: string; namespace: string } | null;
+  root_operation?: string | null;
+  finding_count?: number;
+  highest_finding_severity?: string | null;
+};
+
+export const findingTypeLabels: Record<string, string> = {
+  REPEATED_DATABASE_OPERATION: "Repeated database operation",
+  MAJOR_LATENCY_CONTRIBUTOR: "Major latency contributor",
+  LIKELY_ERROR_ORIGIN: "Likely error origin",
+  REPEATED_DOWNSTREAM_OPERATION: "Repeated downstream operation",
 };
 
 export type Service = {
@@ -126,8 +137,9 @@ async function request<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function getTraces() {
-  return request<{ items: TraceSummary[] }>("/api/v1/traces");
+export async function getTraces(params = new URLSearchParams()) {
+  const query = params.size ? `?${params}` : "";
+  return request<{ items: TraceSummary[]; next_cursor: string | null }>(`/api/v1/traces${query}`);
 }
 
 export async function getTrace(traceId: string) {

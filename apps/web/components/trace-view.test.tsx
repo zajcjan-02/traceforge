@@ -11,6 +11,7 @@ function detail(analysisState: string | null = "COMPLETE"): TraceDetail {
       start_time_unix_ns: "9007199254740993000", end_time_unix_ns: "9007199254740994000",
       duration_ns: "1000", span_count: 3, service_count: 1,
       completeness_state: "INCOMPLETE", analysis_state: analysisState,
+      root_service: null, root_operation: null, finding_count: 0, highest_finding_severity: null,
       last_received_at: "2026-09-10T00:00:00Z", services: [{ service_id: 1, name: "orders", namespace: "" }],
     },
     analysis: {

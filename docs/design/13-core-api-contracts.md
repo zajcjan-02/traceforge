@@ -227,8 +227,6 @@ TraceSummary {
     root_service?
     root_operation?
 
-    status
-
     completeness_state
     analysis_state
 
@@ -258,8 +256,6 @@ TraceSummary {
   },
 
   "root_operation": "GET /checkout",
-
-  "status": "ERROR",
 
   "completeness_state": "COMPLETE",
   "analysis_state": "COMPLETE",
@@ -292,10 +288,11 @@ Potential query parameters:
 from
 to
 
-service
-operation
+service_id
+root_operation
 
-status
+completeness_state
+analysis_state
 
 min_duration_ns
 max_duration_ns
@@ -312,8 +309,8 @@ cursor
 
 ```http
 GET /api/v1/traces
-    ?service=payment-service
-    &status=ERROR
+    ?service_id=12
+    &completeness_state=COMPLETE
     &min_duration_ns=1000000000
 ```
 
@@ -363,6 +360,31 @@ trace ID
 ```
 
 but its internal representation is not part of the public API contract.
+
+Trace list ordering is receipt recency:
+
+```text
+last_received_at DESC NULLS LAST
+trace_id DESC
+```
+
+The cursor records whether its boundary has a receipt timestamp or belongs to
+the legacy null-receipt phase. This keeps rows with `last_received_at = NULL`
+pageable without relying on nullable tuple comparison. Clients preserve active
+filters and reset the cursor when a filter changes.
+
+The implemented v0.1 filters are `trace_id`, `service_id`, `root_operation`,
+`completeness_state`, `analysis_state`, `min_duration_ns`, `max_duration_ns`,
+`has_findings`, `finding_type`, `min_severity`, `start_time_from_ns`, and
+`start_time_to_ns`. `analysis_state=NULL` explicitly filters stored nulls.
+
+`root_operation` is available and filterable only when a trace is `COMPLETE`
+and has exactly one parentless span. Missing, multiple, and incomplete roots
+produce null root summary fields and cannot match a root-operation filter.
+
+Finding count, type, and severity filters use only findings whose analysis run
+is the trace's current run and whose revision matches the trace revision.
+Severity ordering is `LOW < MEDIUM < HIGH`.
 
 ---
 

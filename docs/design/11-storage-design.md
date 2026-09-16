@@ -1517,6 +1517,21 @@ INDEX trace_services_service
 ON trace_services(service_id, trace_id);
 ```
 
+Trace search additionally uses:
+
+```sql
+INDEX traces_start_time_trace
+ON traces(first_span_start_ns, trace_id);
+
+INDEX spans_root_operation
+ON spans(name, trace_id)
+WHERE parent_span_id IS NULL;
+```
+
+The first supports execution-time investigation ranges. The second supports
+exact operation filtering after the query has applied the single-root trace
+semantics; it is not a general span-name search index.
+
 Its primary key already supports:
 
 ```text

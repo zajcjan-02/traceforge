@@ -56,6 +56,14 @@ telemetrygen traces --otlp-insecure --otlp-endpoint localhost:4317 --traces 1
 Use `/debug` for deterministic detector scenarios, then investigate generated
 traces, findings, services, and system status in the product UI.
 
+## Trace search
+
+`/traces` supports URL-shareable filters for exact trace ID, observed service,
+single-root operation, lifecycle/analysis state, duration, current findings,
+severity, and execution start time. Results are paginated by receipt recency;
+execution-time filters intentionally differ from retention, which uses
+`last_received_at`.
+
 ## Demo application
 
 The independent, real OpenTelemetry demo proves an ordinary distributed app can
