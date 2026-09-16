@@ -56,6 +56,42 @@ telemetrygen traces --otlp-insecure --otlp-endpoint localhost:4317 --traces 1
 Use `/debug` for deterministic detector scenarios, then investigate generated
 traces, findings, services, and system status in the product UI.
 
+## Trace search
+
+`/traces` supports URL-shareable filters for exact trace ID, observed service,
+single-root operation, lifecycle/analysis state, duration, current findings,
+severity, and execution start time. Results are paginated by receipt recency;
+execution-time filters intentionally differ from retention, which uses
+`last_received_at`.
+
+## Demo application
+
+The independent, real OpenTelemetry demo proves an ordinary distributed app can
+flow through the Collector into TraceForge. Start it alongside the local stack:
+
+```sh
+docker compose --profile demo up --build
+```
+
+Call its gateway at `http://127.0.0.1:8010`:
+
+```sh
+curl http://127.0.0.1:8010/demo/normal
+curl http://127.0.0.1:8010/demo/repeated-db
+curl http://127.0.0.1:8010/demo/slow-payment
+curl http://127.0.0.1:8010/demo/error
+curl http://127.0.0.1:8010/demo/repeated-downstream
+curl http://127.0.0.1:8010/demo/concurrent
+```
+
+The scenarios respectively demonstrate a healthy request, repeated database
+operations, a latency contributor, propagated error telemetry, repeated
+downstream calls, and concurrent work. See [`demo/README.md`](demo/README.md)
+for the standard OpenTelemetry attributes added where automatic instrumentation
+cannot provide stable low-cardinality operation identity.
+
+Each demo request also writes a concise Markdown report to `demo/reports/`.
+
 ## Configuration
 
 Docker Compose provides working local defaults. The backend and worker use a
@@ -65,16 +101,33 @@ polling/lease/retry settings, and detector repetition thresholds.
 The UI uses `TRACEFORGE_API_URL`. `TRACEFORGE_DEBUG_UI=true` enables the
 local debug fixture.
 
+## Retention
+
+TraceForge retains finalized traces for `TRACE_RETENTION_DAYS=7` by default.
+Eligibility is based on `last_received_at`, never application execution time.
+Set `TRACE_RETENTION_DAYS=0` to disable automatic cleanup. Inspect current
+storage and run one bounded cleanup batch from the System page.
+
+## Benchmarks
+
+The local OTLP benchmark tool measures export and confirmed persisted
+throughput, lifecycle/analysis timings, trace search/detail requests, and one
+bounded retention sweep. See [`bench/README.md`](bench/README.md) for setup and
+reproducible small, medium, and optional large profiles. Local measurements
+are recorded in [`docs/benchmarks/v0.1.md`](docs/benchmarks/v0.1.md), not
+treated as universal performance guarantees.
+
 ## Tests
 
 ```sh
 cd apps/backend && uv run --extra dev pytest
 cd apps/web && npm test && npm run build
+cd demo && pip install ".[dev]" && pytest
 ```
 
 ## Current limitations
 
-- No authentication, retention, alerting, or production deployment workflow.
+- No authentication, alerting, or production deployment workflow.
 - No live updates, historical findings browser, or infrastructure topology.
 - Service dependencies are observed direct cross-service relationships, not
   configured or transitive topology.

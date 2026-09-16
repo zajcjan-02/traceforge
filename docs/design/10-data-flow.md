@@ -1619,7 +1619,17 @@ AnalysisRun revision 12 → current
 
 ## 10.56 Data Retention Flow
 
-Detailed retention policy is deferred, but the architecture should anticipate:
+TraceForge retains finalized traces by TraceForge receipt time. A periodic,
+database-backed sweep selects a bounded batch where `last_received_at` is older
+than the configured cutoff, completeness is `COMPLETE` or `INCOMPLETE`, and no
+analysis job is `PENDING` or `RUNNING`. It deletes trace-owned telemetry and
+analysis rows transactionally while preserving shared service identities.
+
+The sweep never deletes `PROCESSING` traces. Late canonical telemetry already
+returns a trace to `PROCESSING` and refreshes `last_received_at`, making it
+ineligible until it finalizes and ages again.
+
+The flow is:
 
 ```text
 retention task

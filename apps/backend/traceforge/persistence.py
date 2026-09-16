@@ -9,6 +9,29 @@ from traceforge.models import services, span_events, spans, trace_services, trac
 def persist_spans(normalized_spans):
     with engine.begin() as connection:
         for span in normalized_spans:
+            trace = None
+            while trace is None:
+                created = connection.execute(
+                    insert(traces)
+                    .values(
+                        trace_id=span["trace_id"],
+                        revision=1,
+                        first_span_start_ns=span["start_time_unix_ns"],
+                        last_span_end_ns=span["end_time_unix_ns"],
+                        duration_ns=span["duration_ns"],
+                        span_count=1,
+                        completeness_state="PROCESSING",
+                        completion_deadline=completion_deadline(),
+                    )
+                    .on_conflict_do_nothing(index_elements=["trace_id"])
+                    .returning(traces.c.trace_id)
+                ).first()
+                trace = connection.execute(
+                    select(traces)
+                    .where(traces.c.trace_id == span["trace_id"])
+                    .with_for_update()
+                ).mappings().first()
+
             service_id = None
             if span["service_name"] is not None:
                 service_id = connection.execute(
@@ -60,23 +83,7 @@ def persist_spans(normalized_spans):
                     ],
                 )
 
-            trace = connection.execute(
-                select(traces).where(traces.c.trace_id == span["trace_id"])
-            ).mappings().first()
-            if trace is None:
-                connection.execute(
-                    insert(traces).values(
-                        trace_id=span["trace_id"],
-                        revision=1,
-                        first_span_start_ns=span["start_time_unix_ns"],
-                        last_span_end_ns=span["end_time_unix_ns"],
-                        duration_ns=span["duration_ns"],
-                        span_count=1,
-                        completeness_state="PROCESSING",
-                        completion_deadline=completion_deadline(),
-                    )
-                )
-            else:
+            if created is None:
                 first_start = min(trace["first_span_start_ns"], span["start_time_unix_ns"])
                 end_times = [
                     end_time

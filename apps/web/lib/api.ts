@@ -11,6 +11,17 @@ export type TraceSummary = {
   service_count: number;
   completeness_state: string;
   analysis_state: string | null;
+  root_service?: { service_id: number; name: string; namespace: string } | null;
+  root_operation?: string | null;
+  finding_count?: number;
+  highest_finding_severity?: string | null;
+};
+
+export const findingTypeLabels: Record<string, string> = {
+  REPEATED_DATABASE_OPERATION: "Repeated database operation",
+  MAJOR_LATENCY_CONTRIBUTOR: "Major latency contributor",
+  LIKELY_ERROR_ORIGIN: "Likely error origin",
+  REPEATED_DOWNSTREAM_OPERATION: "Repeated downstream operation",
 };
 
 export type Service = {
@@ -38,6 +49,14 @@ export type SystemHealth = {
   storage: { status: string };
   ingestion: { status: string; last_telemetry_received_at: string | null };
   analysis: { status: string; pending_jobs: number; running_jobs: number; failed_jobs_recent: number; oldest_pending_job_age_ms: number | null };
+};
+
+export type RetentionStatus = {
+  enabled: boolean;
+  retention_days: number;
+  cutoff: string | null;
+  eligible_trace_count: number;
+  stored_trace_count: number;
 };
 
 export type Span = {
@@ -118,8 +137,9 @@ async function request<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export async function getTraces() {
-  return request<{ items: TraceSummary[] }>("/api/v1/traces");
+export async function getTraces(params = new URLSearchParams()) {
+  const query = params.size ? `?${params}` : "";
+  return request<{ items: TraceSummary[]; next_cursor: string | null }>(`/api/v1/traces${query}`);
 }
 
 export async function getTrace(traceId: string) {
@@ -144,4 +164,8 @@ export async function getFindings(params: URLSearchParams) {
 
 export async function getSystemHealth() {
   return request<SystemHealth>("/api/v1/system/health");
+}
+
+export async function getRetentionStatus() {
+  return request<RetentionStatus>("/api/v1/system/retention");
 }

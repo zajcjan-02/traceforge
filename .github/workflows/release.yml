@@ -1,0 +1,22 @@
+name: Release validation
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  demo-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+      - name: Run deterministic demo E2E
+        run: bash scripts/ci/demo-e2e.sh
+      - name: Print Compose logs on failure
+        if: failure()
+        run: docker compose --profile demo logs --no-color
+      - name: Clean up Compose
+        if: always()
+        run: docker compose --profile demo down -v --remove-orphans

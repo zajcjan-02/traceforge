@@ -6,7 +6,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 
 from traceforge.database import engine
 from traceforge.models import (
@@ -23,6 +23,7 @@ from traceforge.models import (
     trace_services,
     traces,
 )
+from traceforge.retention import retention_status, sweep_retention
 
 router = APIRouter(prefix="/api/v1")
 
@@ -38,6 +39,15 @@ TIMING_FIELDS = {
     "canonical_duration_ns",
     "combined_duration_ns",
 }
+
+COMPLETENESS_STATES = {"PROCESSING", "COMPLETE", "INCOMPLETE"}
+ANALYSIS_STATES = {"PENDING", "RUNNING", "COMPLETE", "PARTIAL", "FAILED", "NULL"}
+SEVERITY_RANK = case(
+    (findings.c.severity == "HIGH", 3),
+    (findings.c.severity == "MEDIUM", 2),
+    (findings.c.severity == "LOW", 1),
+    else_=0,
+)
 
 
 def trace_bytes(trace_id):
@@ -67,17 +77,242 @@ def serialize_ns(value):
     return str(value) if value is not None else None
 
 
-@router.get("/traces")
-def list_traces():
-    statement = (
-        select(traces, func.count(trace_services.c.service_id).label("service_count"))
-        .outerjoin(trace_services, traces.c.trace_id == trace_services.c.trace_id)
-        .group_by(traces.c.trace_id)
-        .order_by(traces.c.last_received_at.desc())
+def invalid_trace_request(message):
+    return JSONResponse(
+        status_code=400,
+        content={"error": {"code": "INVALID_REQUEST", "message": message}},
     )
-    with engine.connect() as connection:
-        rows = connection.execute(statement).mappings().all()
 
+
+def parse_trace_cursor(cursor, order):
+    try:
+        value = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+        if not isinstance(value, list) or len(value) != 4 or value[0] != order:
+            raise ValueError
+        phase, received_at, trace_id = value[1:]
+        trace_id = trace_bytes(trace_id)
+        if trace_id is None or phase not in {"received", "legacy"}:
+            raise ValueError
+        if phase == "received":
+            received_at = datetime.fromisoformat(received_at)
+            if received_at.tzinfo is None:
+                raise ValueError
+        elif received_at is not None:
+            raise ValueError
+        return phase, received_at, trace_id
+    except (ValueError, TypeError, UnicodeDecodeError, json.JSONDecodeError, BinasciiError):
+        return None
+
+
+def encode_trace_cursor(row, order):
+    received_at = row["last_received_at"]
+    value = [order, "received" if received_at is not None else "legacy", received_at.isoformat() if received_at is not None else None, row["trace_id"].hex()]
+    return base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
+
+
+@router.get("/traces")
+def list_traces(
+    trace_id: str | None = None,
+    service_id: str | None = None,
+    root_operation: str | None = None,
+    completeness_state: str | None = None,
+    analysis_state: str | None = None,
+    min_duration_ns: str | None = None,
+    max_duration_ns: str | None = None,
+    has_findings: str | None = None,
+    finding_type: str | None = None,
+    min_severity: str | None = None,
+    start_time_from_ns: str | None = None,
+    start_time_to_ns: str | None = None,
+    order: str = "received_desc",
+    limit: str = "50",
+    cursor: str | None = None,
+):
+    try:
+        limit = int(limit)
+        if not 1 <= limit <= 100:
+            raise ValueError
+        service_id = int(service_id) if service_id is not None else None
+        if service_id is not None and service_id <= 0:
+            raise ValueError
+        min_duration_ns = int(min_duration_ns) if min_duration_ns is not None else None
+        max_duration_ns = int(max_duration_ns) if max_duration_ns is not None else None
+        start_time_from_ns = int(start_time_from_ns) if start_time_from_ns is not None else None
+        start_time_to_ns = int(start_time_to_ns) if start_time_to_ns is not None else None
+        if any(value is not None and value < 0 for value in (min_duration_ns, max_duration_ns)):
+            raise ValueError
+        if min_duration_ns is not None and max_duration_ns is not None and min_duration_ns > max_duration_ns:
+            raise ValueError
+        if start_time_from_ns is not None and start_time_to_ns is not None and start_time_from_ns > start_time_to_ns:
+            raise ValueError
+        if has_findings is not None:
+            if has_findings not in {"true", "false"}:
+                raise ValueError
+            has_findings = has_findings == "true"
+    except ValueError:
+        return invalid_trace_request("Invalid trace filter.")
+
+    if trace_id is not None:
+        trace_id = trace_bytes(trace_id)
+        if trace_id is None:
+            return invalid_trace_request("Invalid trace ID.")
+    if completeness_state is not None and completeness_state not in COMPLETENESS_STATES:
+        return invalid_trace_request("Invalid completeness state.")
+    if analysis_state is not None and analysis_state not in ANALYSIS_STATES:
+        return invalid_trace_request("Invalid analysis state.")
+    if min_severity is not None and min_severity not in {"LOW", "MEDIUM", "HIGH"}:
+        return invalid_trace_request("Invalid finding severity.")
+    if order not in {"received_desc", "received_asc"}:
+        return invalid_trace_request("Invalid trace order.")
+
+    boundary = parse_trace_cursor(cursor, order) if cursor else None
+    if cursor and boundary is None:
+        return invalid_trace_request("Invalid trace cursor.")
+
+    root_candidates = (
+        select(
+            spans.c.trace_id,
+            spans.c.name.label("root_operation"),
+            spans.c.service_id.label("root_service_id"),
+        )
+        .where(spans.c.parent_span_id.is_(None))
+        .cte("root_candidates")
+    )
+    root_counts = (
+        select(root_candidates.c.trace_id, func.count().label("root_count"))
+        .group_by(root_candidates.c.trace_id)
+        .cte("root_counts")
+    )
+    root_context = (
+        select(
+            root_candidates.c.trace_id,
+            root_candidates.c.root_operation,
+            root_candidates.c.root_service_id,
+        )
+        .join(root_counts, root_counts.c.trace_id == root_candidates.c.trace_id)
+        .where(root_counts.c.root_count == 1)
+        .cte("root_context")
+    )
+    service_counts = (
+        select(trace_services.c.trace_id, func.count().label("service_count"))
+        .group_by(trace_services.c.trace_id)
+        .cte("service_counts")
+    )
+    current_findings = (
+        select(
+            findings.c.trace_id,
+            func.count().label("finding_count"),
+            func.max(SEVERITY_RANK).label("highest_severity_rank"),
+        )
+        .join(
+            traces,
+            and_(
+                findings.c.trace_id == traces.c.trace_id,
+                findings.c.analysis_run_id == traces.c.current_analysis_run_id,
+                findings.c.trace_revision == traces.c.revision,
+            ),
+        )
+        .group_by(findings.c.trace_id)
+        .cte("current_findings")
+    )
+    root_service = services.alias("root_service")
+    statement = (
+        select(
+            traces,
+            func.coalesce(service_counts.c.service_count, 0).label("service_count"),
+            root_context.c.root_operation,
+            root_context.c.root_service_id,
+            root_service.c.service_name.label("root_service_name"),
+            root_service.c.namespace.label("root_service_namespace"),
+            func.coalesce(current_findings.c.finding_count, 0).label("finding_count"),
+            case(
+                (current_findings.c.highest_severity_rank == 3, "HIGH"),
+                (current_findings.c.highest_severity_rank == 2, "MEDIUM"),
+                (current_findings.c.highest_severity_rank == 1, "LOW"),
+            ).label("highest_finding_severity"),
+        )
+        .outerjoin(service_counts, service_counts.c.trace_id == traces.c.trace_id)
+        .outerjoin(root_context, root_context.c.trace_id == traces.c.trace_id)
+        .outerjoin(root_service, root_service.c.service_id == root_context.c.root_service_id)
+        .outerjoin(current_findings, current_findings.c.trace_id == traces.c.trace_id)
+    )
+    if trace_id is not None:
+        statement = statement.where(traces.c.trace_id == trace_id)
+    if service_id is not None:
+        statement = statement.where(
+            select(1)
+            .where(
+                trace_services.c.trace_id == traces.c.trace_id,
+                trace_services.c.service_id == service_id,
+            )
+            .exists()
+        )
+    if root_operation is not None:
+        statement = statement.where(
+            traces.c.completeness_state == "COMPLETE",
+            root_context.c.root_operation == root_operation,
+        )
+    if completeness_state is not None:
+        statement = statement.where(traces.c.completeness_state == completeness_state)
+    if analysis_state == "NULL":
+        statement = statement.where(traces.c.analysis_state.is_(None))
+    elif analysis_state is not None:
+        statement = statement.where(traces.c.analysis_state == analysis_state)
+    if min_duration_ns is not None:
+        statement = statement.where(traces.c.duration_ns >= min_duration_ns)
+    if max_duration_ns is not None:
+        statement = statement.where(traces.c.duration_ns <= max_duration_ns)
+    if start_time_from_ns is not None:
+        statement = statement.where(traces.c.first_span_start_ns >= start_time_from_ns)
+    if start_time_to_ns is not None:
+        statement = statement.where(traces.c.first_span_start_ns <= start_time_to_ns)
+    if has_findings is not None:
+        statement = statement.where(
+            current_findings.c.finding_count.is_not(None)
+            if has_findings
+            else current_findings.c.finding_count.is_(None)
+        )
+    if finding_type is not None or min_severity is not None:
+        matching_findings = select(1).where(
+            findings.c.trace_id == traces.c.trace_id,
+            findings.c.analysis_run_id == traces.c.current_analysis_run_id,
+            findings.c.trace_revision == traces.c.revision,
+        )
+        if finding_type is not None:
+            matching_findings = matching_findings.where(findings.c.finding_type == finding_type)
+        if min_severity is not None:
+            matching_findings = matching_findings.where(
+                SEVERITY_RANK >= {"LOW": 1, "MEDIUM": 2, "HIGH": 3}[min_severity]
+            )
+        statement = statement.where(matching_findings.exists())
+    if boundary:
+        phase, received_at, cursor_trace_id = boundary
+        if phase == "legacy":
+            statement = statement.where(
+                traces.c.last_received_at.is_(None),
+                traces.c.trace_id < cursor_trace_id if order == "received_desc" else traces.c.trace_id > cursor_trace_id,
+            )
+        else:
+            comparison = traces.c.last_received_at < received_at if order == "received_desc" else traces.c.last_received_at > received_at
+            tie_breaker = traces.c.trace_id < cursor_trace_id if order == "received_desc" else traces.c.trace_id > cursor_trace_id
+            statement = statement.where(
+                or_(
+                    comparison,
+                    and_(traces.c.last_received_at == received_at, tie_breaker),
+                    traces.c.last_received_at.is_(None),
+                )
+            )
+    if order == "received_desc":
+        statement = statement.order_by(traces.c.last_received_at.desc().nulls_last(), traces.c.trace_id.desc())
+    else:
+        statement = statement.order_by(traces.c.last_received_at.asc().nulls_last(), traces.c.trace_id.asc())
+    with engine.connect() as connection:
+        rows = connection.execute(statement.limit(limit + 1)).mappings().all()
+
+    next_cursor = None
+    if len(rows) > limit:
+        next_cursor = encode_trace_cursor(rows[limit - 1], order)
+        rows = rows[:limit]
     return {
         "items": [
             {
@@ -90,9 +325,27 @@ def list_traces():
                 "service_count": row["service_count"],
                 "completeness_state": row["completeness_state"],
                 "analysis_state": row["analysis_state"],
+                "root_service": (
+                    {
+                        "service_id": row["root_service_id"],
+                        "name": row["root_service_name"],
+                        "namespace": row["root_service_namespace"],
+                    }
+                    if row["completeness_state"] == "COMPLETE"
+                    and row["root_service_id"] is not None
+                    else None
+                ),
+                "root_operation": (
+                    row["root_operation"]
+                    if row["completeness_state"] == "COMPLETE"
+                    else None
+                ),
+                "finding_count": row["finding_count"],
+                "highest_finding_severity": row["highest_finding_severity"],
             }
             for row in rows
-        ]
+        ],
+        "next_cursor": next_cursor,
     }
 
 
@@ -187,6 +440,16 @@ def system_health():
         "ingestion": {"status": ingestion_status, "last_telemetry_received_at": last_received_at.isoformat() if last_received_at else None},
         "analysis": {"status": analysis_status, "pending_jobs": pending_jobs, "running_jobs": running_jobs, "failed_jobs_recent": failed_jobs_recent, "oldest_pending_job_age_ms": oldest_pending_job_age_ms},
     }
+
+
+@router.get("/system/retention")
+def system_retention():
+    return retention_status()
+
+
+@router.post("/system/retention/run")
+def run_system_retention():
+    return {"deleted_trace_count": sweep_retention(), "retention": retention_status()}
 
 
 @router.get("/services/{service_id}/dependencies")

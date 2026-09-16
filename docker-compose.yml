@@ -26,6 +26,9 @@ services:
       DATABASE_URL: postgresql+psycopg://traceforge:traceforge@postgres:5432/traceforge
       TRACE_QUIET_PERIOD_SECONDS: "2"
       TRACE_LIFECYCLE_SWEEP_INTERVAL_SECONDS: "1"
+      TRACE_RETENTION_DAYS: "7"
+      TRACE_RETENTION_SWEEP_INTERVAL_SECONDS: "3600"
+      TRACE_RETENTION_BATCH_SIZE: "200"
       TRACEFORGE_DEBUG_UI: "true"
 
     depends_on:
@@ -88,6 +91,62 @@ services:
     ports:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
+
+  demo-gateway:
+    profiles: ["demo"]
+    build: ./demo
+    command: uvicorn traceforge_demo.gateway:app --host 0.0.0.0 --port 8010
+    environment:
+      DEMO_REPORTS_DIR: /app/reports
+      ORDERS_URL: http://demo-orders:8011
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      - demo-orders
+      - otel-collector
+    ports:
+      - "127.0.0.1:8010:8010"
+    volumes:
+      - ./demo/reports:/app/reports
+
+  demo-orders:
+    profiles: ["demo"]
+    build: ./demo
+    command: uvicorn traceforge_demo.orders:app --host 0.0.0.0 --port 8011
+    environment:
+      DEMO_REPORTS_DIR: /app/reports
+      INVENTORY_URL: http://demo-inventory:8012
+      PAYMENT_URL: http://demo-payment:8013
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      - demo-inventory
+      - demo-payment
+      - otel-collector
+    volumes:
+      - ./demo/reports:/app/reports
+
+  demo-inventory:
+    profiles: ["demo"]
+    build: ./demo
+    command: uvicorn traceforge_demo.inventory:app --host 0.0.0.0 --port 8012
+    environment:
+      DEMO_REPORTS_DIR: /app/reports
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./demo/reports:/app/reports
+
+  demo-payment:
+    profiles: ["demo"]
+    build: ./demo
+    command: uvicorn traceforge_demo.payment:app --host 0.0.0.0 --port 8013
+    environment:
+      DEMO_REPORTS_DIR: /app/reports
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://otel-collector:4318/v1/traces
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./demo/reports:/app/reports
 
 volumes:
   traceforge-postgres:

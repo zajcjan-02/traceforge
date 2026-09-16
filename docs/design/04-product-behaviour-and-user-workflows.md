@@ -170,6 +170,10 @@ Time: last 15 minutes
 ```
 
 Trace filtering should progressively narrow the investigation rather than require construction of an advanced query.
+
+The trace list orders by most recently received telemetry. Execution-time range
+filters are separate: they constrain the trace start timestamp rather than the
+receipt timestamp used for list recency and retention.
 <hr>
 
 ### 4.6.2 Open Trace Overview
